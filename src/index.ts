@@ -4,6 +4,7 @@ import * as process from "node:process";
 import { ALL_CHECKS, type Finding } from "./checks.js";
 import { listFiles, getTrackedFiles } from "./scan.js";
 import { CHECKLIST_ITEMS, permalinkFor, type Severity } from "./items.js";
+import { publishScan } from "./publish.js";
 
 const UNTRACKED_DOWNGRADE: Record<Severity, Severity> = {
   critical: "lower",
@@ -43,7 +44,7 @@ interface CliOptions {
 }
 
 const DEFAULT_BASE_URL = "https://shippingszn.com";
-const PKG_VERSION = "0.4.0";
+const PKG_VERSION = "0.5.0";
 
 function parseArgs(argv: string[]): CliOptions {
   const opts: CliOptions = {
@@ -192,6 +193,20 @@ async function run(): Promise<number> {
     findings: enriched,
   };
 
+  // Best-effort anonymous publish to the Wall of Launches. Runs once per
+  // scan, before any return path. Never blocks on network failure. Full
+  // opt-out via SHIPPINGSZN_DISABLE_PUBLISH=1.
+  let publishResult: "published" | "skipped" | "failed" = "skipped";
+  try {
+    publishResult = await publishScan(totals, files.length, {
+      cwd: opts.cwd,
+      baseUrl: opts.baseUrl,
+      scannerVersion: PKG_VERSION,
+    });
+  } catch {
+    /* never block on wall publish */
+  }
+
   if (opts.json) {
     process.stdout.write(JSON.stringify(report, null, 2) + "\n");
     return totals.critical > 0 ? 1 : 0;
@@ -218,6 +233,13 @@ async function run(): Promise<number> {
         "✓ No findings. Nice work — still walk through the full checklist before launch.\n\n",
       ),
     );
+    if (publishResult === "published") {
+      process.stdout.write(
+        c.dim(
+          `Posted an anonymous summary to the Wall: ${opts.baseUrl}/wall\n(opt out: SHIPPINGSZN_DISABLE_PUBLISH=1)\n\n`,
+        ),
+      );
+    }
     return 0;
   }
 
@@ -250,6 +272,14 @@ async function run(): Promise<number> {
   process.stdout.write(
     `${c.bold("Summary:")} ${c.red(`${totals.critical} critical`)}, ${c.yellow(`${totals.high} high`)}, ${c.blue(`${totals.medium} medium`)}, ${c.gray(`${totals.lower} lower`)}\n`,
   );
+  if (publishResult === "published") {
+    process.stdout.write(
+      c.dim(
+        `\nPosted an anonymous summary to the Wall: ${opts.baseUrl}/wall\n(opt out: SHIPPINGSZN_DISABLE_PUBLISH=1)\n`,
+      ),
+    );
+  }
+
   if (totals.critical > 0) {
     process.stdout.write(
       c.red("\nCritical findings detected. Exiting with code 1.\n"),
