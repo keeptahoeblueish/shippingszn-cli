@@ -10,48 +10,113 @@ const SECURITY_HEADER_NAMES = [
   "Referrer-Policy",
 ];
 
-export async function checkSecurityHeaders(ctx: CheckContext): Promise<Finding[]> {
-  const candidateFiles = ctx.files.filter((f) => {
-    const rp = f.relPath.toLowerCase();
-    if (rp.endsWith(".test.ts") || rp.endsWith(".spec.ts")) return false;
-    return (
-      rp.endsWith("vite.config.ts") ||
-      rp.endsWith("vite.config.js") ||
-      rp.endsWith("next.config.js") ||
-      rp.endsWith("next.config.mjs") ||
-      rp.endsWith("next.config.ts") ||
-      rp.endsWith("nuxt.config.ts") ||
-      rp.endsWith("svelte.config.js") ||
-      rp.endsWith("astro.config.mjs") ||
-      rp.endsWith("astro.config.ts") ||
-      rp.endsWith("vercel.json") ||
-      rp.endsWith("netlify.toml") ||
-      /server\/index\.(t|j)s$/.test(rp) ||
-      /^server\.(t|j)s$/.test(path.basename(rp)) ||
-      /\bapp\.(t|j)s$/.test(rp) ||
-      /\bindex\.(t|j)s$/.test(rp)
-    );
-  });
+const CANDIDATE_EXTENSIONS = new Set([
+  ".ts",
+  ".tsx",
+  ".js",
+  ".jsx",
+  ".mjs",
+  ".cjs",
+  ".mts",
+  ".cts",
+  ".json",
+  ".toml",
+]);
 
-  if (candidateFiles.length === 0) return [];
+const CANDIDATE_BASENAMES = new Set([
+  "vite.config.ts",
+  "vite.config.js",
+  "vite.config.mjs",
+  "vite.config.cjs",
+  "next.config.js",
+  "next.config.mjs",
+  "next.config.ts",
+  "nuxt.config.ts",
+  "svelte.config.js",
+  "astro.config.mjs",
+  "astro.config.ts",
+  "vercel.json",
+  "netlify.toml",
+]);
 
-  let foundAny = false;
-  for (const file of candidateFiles) {
+// Directories whose files commonly define server / middleware / route /
+// header code. We scan every eligible file under these trees, not just a
+// single "entry" file, so hand-rolled security-header middleware (e.g.
+// a dedicated server/security.ts) is detected just as reliably as helmet().
+const CANDIDATE_DIR_SEGMENTS = [
+  "server/",
+  "api/",
+  "backend/",
+  "middleware/",
+  "middlewares/",
+  "lib/server/",
+  "src/server/",
+  "src/api/",
+  "src/middleware/",
+  "src/middlewares/",
+  "apps/server/",
+  "apps/api/",
+  "packages/server/",
+  "packages/api/",
+  "artifacts/server/",
+  "artifacts/api-server/",
+];
+
+function isCandidateFile(relPath: string): boolean {
+  const lower = relPath.replace(/\\/g, "/").toLowerCase();
+  if (
+    lower.includes("/node_modules/") ||
+    lower.includes("/dist/") ||
+    lower.includes("/build/") ||
+    lower.includes("/.next/") ||
+    lower.endsWith(".test.ts") ||
+    lower.endsWith(".spec.ts") ||
+    lower.endsWith(".test.tsx") ||
+    lower.endsWith(".spec.tsx") ||
+    lower.endsWith(".test.js") ||
+    lower.endsWith(".spec.js")
+  ) {
+    return false;
+  }
+  const base = path.basename(lower);
+  if (CANDIDATE_BASENAMES.has(base)) return true;
+  const ext = path.extname(lower);
+  if (!CANDIDATE_EXTENSIONS.has(ext)) return false;
+  if (
+    /\b(?:server|index|app|main|bootstrap|middleware|security)\.(?:t|j|m|c)?sx?$/.test(
+      base,
+    )
+  ) {
+    return true;
+  }
+  for (const seg of CANDIDATE_DIR_SEGMENTS) {
+    if (lower.includes("/" + seg) || lower.startsWith(seg)) return true;
+  }
+  return false;
+}
+
+export async function checkSecurityHeaders(
+  ctx: CheckContext,
+): Promise<Finding[]> {
+  const candidates = ctx.files.filter((f) => isCandidateFile(f.relPath));
+  if (candidates.length === 0) return [];
+
+  for (const file of candidates) {
     const content = await readFileSafe(file);
     if (!content) continue;
+    const lower = content.toLowerCase();
     for (const h of SECURITY_HEADER_NAMES) {
-      if (content.toLowerCase().includes(h.toLowerCase())) {
-        foundAny = true;
-        break;
-      }
+      if (lower.includes(h.toLowerCase())) return [];
     }
-    if (content.includes("helmet(") || content.includes('require("helmet")') || content.includes('from "helmet"')) {
-      foundAny = true;
+    if (
+      lower.includes("helmet(") ||
+      lower.includes('require("helmet")') ||
+      lower.includes('from "helmet"') ||
+      lower.includes("from 'helmet'")
+    ) {
+      return [];
     }
-    if (foundAny) break;
   }
-
-  if (foundAny) return [];
 
   return [
     {
