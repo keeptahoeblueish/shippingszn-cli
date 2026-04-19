@@ -1,0 +1,56 @@
+{
+  "name": "shippingszn",
+  "version": "0.1.0",
+  "description": "Read-only CLI scanner that checks a project for common pre-launch issues from the shippingszn.com launch checklist.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "shippingszn": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "cli",
+    "launch",
+    "checklist",
+    "preflight",
+    "security",
+    "audit",
+    "scanner",
+    "ship",
+    "shippingszn",
+    "vibe-coder"
+  ],
+  "homepage": "https://shippingszn.com",
+  "bugs": {
+    "url": "https://github.com/keeptahoeblueish/shippingszn-cli/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/keeptahoeblueish/shippingszn-cli.git"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx ./src/index.ts",
+    "start": "node ./dist/index.js",
+    "test": "tsx --test ./test/*.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run clean && npm run build && npm test"
+  },
+  "devDependencies": {
+    "@types/node": "^25.3.3",
+    "tsx": "4.21.0",
+    "typescript": "^5.6.3"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  }
+}
