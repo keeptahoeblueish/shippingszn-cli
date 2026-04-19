@@ -2,8 +2,36 @@
 import * as path from "node:path";
 import * as process from "node:process";
 import { ALL_CHECKS, type Finding } from "./checks.js";
-import { listFiles } from "./scan.js";
+import { listFiles, getTrackedFiles } from "./scan.js";
 import { CHECKLIST_ITEMS, permalinkFor, type Severity } from "./items.js";
+
+const UNTRACKED_DOWNGRADE: Record<Severity, Severity> = {
+  critical: "lower",
+  high: "lower",
+  medium: "lower",
+  lower: "lower",
+};
+
+const UNTRACKED_SUFFIX =
+  " (Note: this file is not tracked in git — it can't leak through a repo push, so severity is softened. If you ever commit it or ship it in a public artifact, re-scan.)";
+
+function applyTrackingAwareSeverity(
+  findings: Finding[],
+  tracked: Set<string> | null,
+): Finding[] {
+  if (!tracked) return findings;
+  return findings.map((f) => {
+    if (!f.file) return f;
+    if (tracked.has(f.file)) return f;
+    const nextSeverity = UNTRACKED_DOWNGRADE[f.severity];
+    if (nextSeverity === f.severity) return f;
+    return {
+      ...f,
+      severity: nextSeverity,
+      message: f.message + UNTRACKED_SUFFIX,
+    };
+  });
+}
 
 interface CliOptions {
   cwd: string;
@@ -15,7 +43,7 @@ interface CliOptions {
 }
 
 const DEFAULT_BASE_URL = "https://shippingszn.com";
-const PKG_VERSION = "0.1.0";
+const PKG_VERSION = "0.2.0";
 
 function parseArgs(argv: string[]): CliOptions {
   const opts: CliOptions = {
@@ -111,6 +139,7 @@ async function run(): Promise<number> {
   const c = color(!opts.noColor && process.stdout.isTTY === true && !opts.json);
 
   const files = await listFiles(opts.cwd);
+  const tracked = getTrackedFiles(opts.cwd);
   const ctx = { rootDir: opts.cwd, files };
   const all: Finding[] = [];
   for (const check of ALL_CHECKS) {
@@ -128,7 +157,9 @@ async function run(): Promise<number> {
     }
   }
 
-  const enriched = all.map((f) => {
+  const tracked_aware = applyTrackingAwareSeverity(all, tracked);
+
+  const enriched = tracked_aware.map((f) => {
     const item = CHECKLIST_ITEMS[f.itemId];
     return {
       ...f,

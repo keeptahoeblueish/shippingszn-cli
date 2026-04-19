@@ -1,5 +1,25 @@
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
+import { spawnSync } from "node:child_process";
+
+/**
+ * Ask git for the list of tracked files. Returns null when the directory
+ * isn't a git work tree (or git isn't available) — callers treat that as
+ * "don't know, assume tracked" so we never weaken a finding's severity
+ * on a non-git project.
+ */
+export function getTrackedFiles(rootDir: string): Set<string> | null {
+  const result = spawnSync("git", ["-C", rootDir, "ls-files", "-z"], {
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  if (result.status !== 0 || !result.stdout) return null;
+  const out = new Set<string>();
+  for (const rel of result.stdout.split("\0")) {
+    if (rel) out.add(rel);
+  }
+  return out;
+}
 
 const DEFAULT_IGNORES = new Set([
   "node_modules",
