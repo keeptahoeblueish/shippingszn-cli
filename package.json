@@ -1,6 +1,6 @@
 {
   "name": "shippingszn",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Read-only CLI scanner that checks a project for common pre-launch issues from the shippingszn.com launch checklist.",
   "license": "MIT",
   "type": "module",

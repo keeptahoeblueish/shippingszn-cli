@@ -43,7 +43,7 @@ interface CliOptions {
 }
 
 const DEFAULT_BASE_URL = "https://shippingszn.com";
-const PKG_VERSION = "0.3.0";
+const PKG_VERSION = "0.4.0";
 
 function parseArgs(argv: string[]): CliOptions {
   const opts: CliOptions = {
