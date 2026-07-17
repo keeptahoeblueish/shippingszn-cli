@@ -27,11 +27,13 @@ will be; the Fix Kit is how you fix what it finds.
 The CLI **never writes, modifies, or deletes** any files - it only reads. (The
 one exception is a tiny first-run marker under your config dir,
 `~/.config/shippingszn/seen`, used to show the telemetry notice once.) By
-default each run creates a scan handoff for checkout and sends one anonymous
-Wall report-card summary with score, severity counts, files scanned, scanner
-version, and safe stack tags. It never uploads source code, repo URLs, project
-names, secrets, handles, or emails. Pass `--no-telemetry` to run fully offline
-(zero network calls).
+default each run makes two anonymous requests: a scan handoff for checkout that
+carries finding-level detail (severity, checklist item, `file:line`, and a short
+evidence snippet — secret values always redacted before upload), and an
+aggregate Wall summary with score, severity counts, files scanned, scanner
+version, and safe stack tags. Neither uploads full source files, repo URLs,
+project names, unredacted secrets, handles, or emails. Pass `--no-telemetry` to
+run fully offline (zero network calls). Details in [Telemetry](#telemetry).
 
 **The free scan is the full diagnosis.** Human output prints a verdict, a
 higher-is-better Readiness Score, severity counts, and **every finding grouped
@@ -76,15 +78,23 @@ exactly what's wrong; the Launch Fix Kit is how you fix it.
 
 ## Telemetry
 
-Plain `npx shippingszn@latest` sends one anonymous Wall summary automatically.
-The stored row is intentionally small: score, launch label, files scanned,
-finding counts by severity, detected stack tags, scanner version, and timestamp.
-It never includes code, file paths, filenames, project names, repo URLs,
-secrets, emails, or any finding-level detail.
+Plain `npx shippingszn@latest` makes **two** anonymous requests per run:
 
-On the **first run on a machine**, the CLI prints the exact anonymous payload it
-would send (to stderr, so it never corrupts `--json` output) and a note that you
-can turn it off. Telemetry is default-on but fully transparent and opt-out-able:
+1. **Scan handoff** (`POST /api/scan-results`) — powers the `/fix-kit` link the
+   CLI prints. It carries finding-level detail: each finding's severity, the
+   checklist item it maps to, its `file:line` location, and a short evidence
+   snippet from the matched line. Secret values are always redacted to a
+   `abc123…x9z2` form before upload. It does not include your repo URL, project
+   name, or full source files.
+2. **Aggregate Wall summary** (`POST /api/wall`) — intentionally small: score,
+   launch label, files scanned, finding counts by severity, detected stack
+   tags, scanner version, and timestamp. No paths, no filenames, no
+   finding-level detail.
+
+On the **first run on a machine**, the CLI prints a description of both requests
+plus the exact aggregate payload (to stderr, so it never corrupts `--json`
+output) and a note that you can turn it off. Telemetry is default-on but fully
+transparent and opt-out-able:
 
 ```bash
 npx shippingszn@latest --no-telemetry   # zero network calls, fully offline

@@ -64,6 +64,17 @@ function runHumanCli(
   return res;
 }
 
+function runRawCli(args: string[]) {
+  return spawnSync(TSX_BIN, [ENTRY, ...args], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      GITHUB_ACTIONS: "",
+      SHIPPINGSZN_CONFIG_HOME: SEEN_CONFIG_HOME,
+    },
+  });
+}
+
 interface ScoreOnlyReport {
   score: number;
   band: "no_go" | "fix_first" | "verify_before_launch" | "launchable";
@@ -106,6 +117,52 @@ interface ScoreOnlyReport {
 function parseReport(res: ReturnType<typeof runCli>): ScoreOnlyReport {
   return JSON.parse(res.stdout);
 }
+
+test("CLI rejects malformed options instead of scanning an unintended target", () => {
+  const cases = [
+    { args: ["--cwd"], message: /--cwd requires a value/ },
+    { args: ["--base-url", "--json"], message: /--base-url requires a value/ },
+    { args: ["--unknown"], message: /Unknown option/ },
+    {
+      args: ["--base-url", "file:///tmp", "--help"],
+      message: /must use http:\/\/ or https:\/\//,
+    },
+    {
+      args: [FIXTURES, path.join(FIXTURES, "clean"), "--help"],
+      message: /exactly one scan target/,
+    },
+  ];
+
+  for (const { args, message } of cases) {
+    const res = runRawCli(args);
+    assert.equal(res.status, 2, `args=${JSON.stringify(args)}\n${res.stderr}`);
+    assert.match(res.stderr, message);
+  }
+});
+
+test("CLI rejects a nonexistent scan target instead of reporting a partial score", () => {
+  const missing = path.join(os.tmpdir(), `shippingszn-missing-${Date.now()}`);
+  const res = runRawCli([missing, "--json", "--no-telemetry"]);
+  assert.equal(res.status, 2);
+  assert.match(res.stderr, /Scan target does not exist/);
+  assert.equal(res.stdout, "");
+});
+
+test("CLI canonicalizes trailing slashes in generated product links", () => {
+  const res = runCli("clean", [
+    "--no-telemetry",
+    "--base-url",
+    "https://example.test///",
+  ]);
+  assert.equal(res.status, 0, res.stderr);
+  const report = parseReport(res);
+  assert.equal(report.unlockUrl, "https://example.test/fix-kit");
+  assert.ok(
+    report.findings.every((finding) =>
+      finding.permalink.startsWith("https://example.test/i/"),
+    ),
+  );
+});
 
 async function startProofServer() {
   const script = `
@@ -447,7 +504,8 @@ test("first-run telemetry disclosure prints once per machine", () => {
     SHIPPINGSZN_CONFIG_HOME: configHome,
   });
   assert.equal(first.status, 0, `stdout: ${first.stdout}`);
-  assert.match(first.stderr, /anonymous telemetry ping/);
+  assert.match(first.stderr, /anonymous telemetry requests/);
+  assert.match(first.stderr, /scan handoff/);
   assert.match(first.stderr, /score:/);
   assert.match(first.stderr, /severity counts:/);
   assert.match(first.stderr, /files scanned:/);
@@ -464,7 +522,7 @@ test("first-run telemetry disclosure prints once per machine", () => {
     SHIPPINGSZN_CONFIG_HOME: configHome,
   });
   assert.equal(second.status, 0, `stdout: ${second.stdout}`);
-  assert.doesNotMatch(second.stderr, /anonymous telemetry ping/);
+  assert.doesNotMatch(second.stderr, /anonymous telemetry requests/);
 });
 
 test("CLI scan handoff posts canonical payload and returns Fix Kit URLs", async () => {

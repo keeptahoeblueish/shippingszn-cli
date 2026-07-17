@@ -110,16 +110,62 @@ const MAX_FILE_BYTES = 512 * 1024;
 const MAX_DEPTH = 24;
 const MAX_FILES = 50_000;
 
+export class ScanInputError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ScanInputError";
+  }
+}
+
+export class ScanLimitError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ScanLimitError";
+  }
+}
+
+export interface ListFilesOptions {
+  /** Test/embedding override. Normal CLI scans use the production ceiling. */
+  maxFiles?: number;
+  /** Test/embedding override. Normal CLI scans use the production ceiling. */
+  maxDepth?: number;
+}
+
 export interface ScannedFile {
   absPath: string;
   relPath: string;
   size: number;
 }
 
-export async function listFiles(rootDir: string): Promise<ScannedFile[]> {
+export async function listFiles(
+  rootDir: string,
+  options: ListFilesOptions = {},
+): Promise<ScannedFile[]> {
+  const maxFiles = options.maxFiles ?? MAX_FILES;
+  const maxDepth = options.maxDepth ?? MAX_DEPTH;
+  if (!Number.isSafeInteger(maxFiles) || maxFiles <= 0) {
+    throw new ScanInputError("maxFiles must be a positive safe integer");
+  }
+  if (!Number.isSafeInteger(maxDepth) || maxDepth < 0) {
+    throw new ScanInputError("maxDepth must be a non-negative safe integer");
+  }
+
+  let rootStat;
+  try {
+    rootStat = await fs.stat(rootDir);
+  } catch {
+    throw new ScanInputError(
+      `Scan target does not exist or cannot be read: ${rootDir}`,
+    );
+  }
+  if (!rootStat.isDirectory()) {
+    throw new ScanInputError(`Scan target is not a directory: ${rootDir}`);
+  }
+
   const out: ScannedFile[] = [];
   const visited = new Set<string>();
-  const rootResolved = path.resolve(rootDir);
+  const rootResolved = await fs.realpath(rootDir);
+  visited.add(rootResolved);
   // When running inside a git repo, exclude anything .gitignore'd from the
   // walk. This stops generated artifacts (e2e/playwright-report/, dist/
   // contents the user's repo gitignores explicitly, .env files in projects
@@ -129,16 +175,21 @@ export async function listFiles(rootDir: string): Promise<ScannedFile[]> {
   const allowed = getNotIgnoredFiles(rootDir);
 
   async function walk(dir: string, depth: number): Promise<void> {
-    if (depth > MAX_DEPTH) return;
-    if (out.length >= MAX_FILES) return;
+    if (depth > maxDepth) {
+      throw new ScanLimitError(
+        `Scan stopped: directory depth exceeds the ${maxDepth}-level safety limit.`,
+      );
+    }
     let entries;
     try {
       entries = await fs.readdir(dir, { withFileTypes: true });
     } catch {
+      if (depth === 0) {
+        throw new ScanInputError(`Scan target cannot be read: ${rootDir}`);
+      }
       return;
     }
     for (const entry of entries) {
-      if (out.length >= MAX_FILES) return;
       if (entry.name.startsWith(".") && DEFAULT_IGNORES.has(entry.name))
         continue;
       if (DEFAULT_IGNORES.has(entry.name)) continue;
@@ -195,6 +246,11 @@ export async function listFiles(rootDir: string): Promise<ScannedFile[]> {
         } catch {
           continue;
         }
+        if (out.length >= maxFiles) {
+          throw new ScanLimitError(
+            `Scan stopped: project contains more than ${maxFiles.toLocaleString("en-US")} files, above the safety limit.`,
+          );
+        }
         out.push({ absPath: abs, relPath: rel, size });
       }
     }
@@ -220,10 +276,31 @@ export function isTextFile(file: ScannedFile): boolean {
 
 export async function readFileSafe(file: ScannedFile): Promise<string | null> {
   if (file.size > MAX_FILE_BYTES) return null;
+  let handle: Awaited<ReturnType<typeof fs.open>> | null = null;
   try {
-    return await fs.readFile(file.absPath, "utf8");
+    // Do not trust the size captured during the directory walk: a file can be
+    // replaced or enlarged before a check reads it. Read at most cap+1 bytes
+    // so that time-of-check/time-of-use races cannot turn the scanner into an
+    // unbounded memory read.
+    handle = await fs.open(file.absPath, "r");
+    const buffer = Buffer.allocUnsafe(MAX_FILE_BYTES + 1);
+    let offset = 0;
+    while (offset < buffer.length) {
+      const { bytesRead } = await handle.read(
+        buffer,
+        offset,
+        buffer.length - offset,
+        offset,
+      );
+      if (bytesRead === 0) break;
+      offset += bytesRead;
+    }
+    if (offset > MAX_FILE_BYTES) return null;
+    return buffer.subarray(0, offset).toString("utf8");
   } catch {
     return null;
+  } finally {
+    await handle?.close().catch(() => undefined);
   }
 }
 

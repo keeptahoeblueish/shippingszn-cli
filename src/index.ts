@@ -64,6 +64,32 @@ const PKG_VERSION = ((): string => {
   return pkg.version;
 })();
 
+class CliInputError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CliInputError";
+  }
+}
+
+function normalizeBaseUrl(raw: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new CliInputError(`Invalid --base-url value: ${raw}`);
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new CliInputError("--base-url must use http:// or https://");
+  }
+  if (parsed.username || parsed.password) {
+    throw new CliInputError("--base-url must not contain credentials");
+  }
+  parsed.hash = "";
+  parsed.search = "";
+  parsed.pathname = parsed.pathname.replace(/\/+$/, "") || "/";
+  return parsed.toString().replace(/\/+$/, "");
+}
+
 function parseArgs(argv: string[]): CliOptions {
   const opts: CliOptions = {
     cwd: process.cwd(),
@@ -78,8 +104,35 @@ function parseArgs(argv: string[]): CliOptions {
     proof: true,
     telemetry: true,
   };
+  let targetWasSet = false;
+  let positionalOnly = false;
+
+  const requireValue = (flag: string, index: number): string => {
+    const value = argv[index + 1];
+    if (!value || value.startsWith("-")) {
+      throw new CliInputError(`${flag} requires a value`);
+    }
+    return value;
+  };
+
+  const setTarget = (raw: string): void => {
+    if (targetWasSet) {
+      throw new CliInputError("Specify exactly one scan target");
+    }
+    opts.cwd = path.resolve(raw);
+    targetWasSet = true;
+  };
+
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
+    if (positionalOnly) {
+      setTarget(a);
+      continue;
+    }
+    if (a === "--") {
+      positionalOnly = true;
+      continue;
+    }
     if (a === "--help" || a === "-h") opts.help = true;
     else if (a === "--version" || a === "-v") opts.version = true;
     else if (a === "--json") opts.json = true;
@@ -91,10 +144,19 @@ function parseArgs(argv: string[]): CliOptions {
       a === "--no-publish"
     )
       opts.telemetry = false;
-    else if (a === "--base-url") opts.baseUrl = argv[++i] ?? opts.baseUrl;
-    else if (a === "--cwd") opts.cwd = path.resolve(argv[++i] ?? opts.cwd);
-    else if (!a.startsWith("-")) opts.cwd = path.resolve(a);
+    else if (a === "--base-url") {
+      opts.baseUrl = requireValue(a, i);
+      i += 1;
+    } else if (a === "--cwd") {
+      setTarget(requireValue(a, i));
+      i += 1;
+    } else if (a.startsWith("-")) {
+      throw new CliInputError(`Unknown option: ${a}`);
+    } else {
+      setTarget(a);
+    }
   }
+  opts.baseUrl = normalizeBaseUrl(opts.baseUrl);
   return opts;
 }
 
@@ -187,16 +249,19 @@ function printTelemetryDisclosure(info: {
   const { score, totals, filesScanned, scannerVersion, stack } = info;
   const stackList = stack.length ? stack.join(", ") : "(none detected)";
   process.stderr.write(
-    `\nshippingszn sends one anonymous telemetry ping per run (this keeps the public\n` +
-      `Wall and aggregate stats current). This run would send exactly:\n` +
-      `  - score: ${score}\n` +
-      `  - severity counts: ${totals.critical} critical, ${totals.high} high, ${totals.medium} medium, ${totals.lower} lower\n` +
-      `  - files scanned: ${filesScanned}\n` +
-      `  - scanner version: ${scannerVersion}\n` +
-      `  - stack tags: ${stackList}\n` +
-      `It never includes your code, file paths, filenames, project name, repo URL,\n` +
-      `secrets, emails, or any finding-level detail. Disable it anytime with\n` +
-      `--no-telemetry (the CLI then runs fully offline). This notice shows once per machine.\n\n`,
+    `\nshippingszn sends two anonymous telemetry requests per run by default:\n` +
+      `1. A scan handoff (creates your /fix-kit link): each finding's severity,\n` +
+      `   checklist item, file:line location, and a short evidence snippet from the\n` +
+      `   matched line. Secret values are always redacted before upload.\n` +
+      `2. An aggregate Wall ping. This run's aggregate payload:\n` +
+      `   - score: ${score}\n` +
+      `   - severity counts: ${totals.critical} critical, ${totals.high} high, ${totals.medium} medium, ${totals.lower} lower\n` +
+      `   - files scanned: ${filesScanned}\n` +
+      `   - scanner version: ${scannerVersion}\n` +
+      `   - stack tags: ${stackList}\n` +
+      `Neither request includes your repo URL, project name, full source files, or\n` +
+      `unredacted secret values. Disable both with --no-telemetry (the CLI then runs\n` +
+      `fully offline, zero network calls). This notice shows once per machine.\n\n`,
   );
 }
 
@@ -247,11 +312,13 @@ finding — severity, the checklist item it maps to, the file and line, and what
 wrong — plus a 0-100 readiness score. The $49 Launch Fix Kit is the REMEDIATION
 layer: per-finding fix instructions, prompts to paste straight into your AI
 builder, the 58-item launch workbook, unlimited re-scans, and launch monitoring.
-Read-only on disk. By default each run sends one anonymous, transparent
-telemetry ping (score, severity counts, file count, scanner version, stack tags
-— never code, paths, project names, or finding-level detail) and creates a scan
-handoff so checkout can carry this exact scan into the Fix Kit; pass
---no-telemetry to disable both. Exit code non-zero if any critical findings.
+Read-only on disk. By default each run sends two anonymous requests: a scan
+handoff carrying finding-level detail (severity, checklist item, file:line, and
+a short evidence snippet — secret values always redacted) so checkout can carry
+this exact scan into the Fix Kit, and an aggregate Wall ping (score, severity
+counts, file count, scanner version, stack tags). Neither includes your repo
+URL, project name, or full source files. Pass --no-telemetry to disable both.
+Exit code non-zero if any critical findings.
 `,
   );
 }
