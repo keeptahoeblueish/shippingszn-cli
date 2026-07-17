@@ -1,11 +1,11 @@
 {
   "name": "shippingszn",
-  "version": "0.5.0",
-  "description": "Read-only CLI scanner that checks a project for common pre-launch issues from the shippingszn.com launch checklist.",
+  "version": "0.10.0",
+  "description": "Read-only launch inspector for AI-built apps.",
   "license": "MIT",
   "type": "module",
   "bin": {
-    "shippingszn": "./dist/index.js"
+    "shippingszn": "dist/index.js"
   },
   "files": [
     "dist",
@@ -15,6 +15,7 @@
   "keywords": [
     "cli",
     "launch",
+    "launch-inspector",
     "checklist",
     "preflight",
     "security",
@@ -30,13 +31,13 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/keeptahoeblueish/shippingszn-cli.git"
+    "url": "https://github.com/keeptahoeblueish/shippingszn-cli"
   },
   "engines": {
     "node": ">=18"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "node ./build.mjs",
     "dev": "tsx ./src/index.ts",
     "start": "node ./dist/index.js",
     "test": "tsx --test ./test/*.test.ts",
@@ -45,12 +46,12 @@
     "prepublishOnly": "npm run clean && npm run build && npm test"
   },
   "devDependencies": {
-    "@types/node": "^25.3.3",
-    "tsx": "4.21.0",
+    "@types/node": "^25.6.0",
+    "esbuild": "^0.28.0",
+    "tsx": "^4.21.0",
     "typescript": "^5.6.3"
   },
   "publishConfig": {
-    "access": "public",
-    "registry": "https://registry.npmjs.org/"
+    "access": "public"
   }
 }

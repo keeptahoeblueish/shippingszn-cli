@@ -18,23 +18,42 @@ export function findLine(content: string, idx: number): number {
 }
 
 /**
- * Inline opt-out marker. Any line containing this token is exempt from
- * substring/regex-based checks (placeholder content, dangerous patterns).
- * Used by the scanner's own source to avoid matching its pattern definitions.
+ * Inline opt-out markers. Two flavors, both optional:
  *
- * The literal value is split across a concatenation so that grep'ing for the
- * marker only finds the *uses*, not this definition.
+ * - `shippingszn:ignore` on the same line as the match suppresses it.
+ * - `shippingszn:ignore-next-line` on the line ABOVE the match suppresses
+ *   it. This exists because formatters (prettier, biome) routinely
+ *   reflow trailing comments onto their own line, which would otherwise
+ *   silently break the same-line marker. Mirrors the eslint /
+ *   prettier-ignore-next conventions.
+ *
+ * The literal values are split across concatenations so that grep'ing
+ * for the marker only finds the *uses*, not these definitions.
  */
 export const IGNORE_MARKER = "shippingszn" + ":ignore";
+export const IGNORE_NEXT_LINE_MARKER = "shippingszn" + ":ignore-next-line";
+
+function getLine(content: string, charIndex: number): string {
+  const lineStart = content.lastIndexOf("\n", charIndex - 1) + 1;
+  const lineEnd = content.indexOf("\n", charIndex);
+  return content.slice(lineStart, lineEnd === -1 ? undefined : lineEnd);
+}
+
+function getPreviousLine(content: string, charIndex: number): string | null {
+  const lineStart = content.lastIndexOf("\n", charIndex - 1) + 1;
+  if (lineStart === 0) return null;
+  const prevEnd = lineStart - 1;
+  const prevStart = content.lastIndexOf("\n", prevEnd - 1) + 1;
+  return content.slice(prevStart, prevEnd);
+}
 
 export function lineContainsIgnoreMarker(
   content: string,
   charIndex: number,
 ): boolean {
-  const lineStart = content.lastIndexOf("\n", charIndex - 1) + 1;
-  const lineEnd = content.indexOf("\n", charIndex);
-  const line = content.slice(lineStart, lineEnd === -1 ? undefined : lineEnd);
-  return line.includes(IGNORE_MARKER);
+  if (getLine(content, charIndex).includes(IGNORE_MARKER)) return true;
+  const prev = getPreviousLine(content, charIndex);
+  return prev !== null && prev.includes(IGNORE_NEXT_LINE_MARKER);
 }
 
 const PUBLIC_DIR_CANDIDATES = [
@@ -99,12 +118,19 @@ const PATTERN_DEFINITION_FILES: ReadonlySet<string> = new Set([
   "tools/cli/src/checks/dangerous.ts",
   "tools/cli/src/checks/quality.ts",
   "tools/cli/src/checks/language.ts",
+  "tools/cli/src/checks/otp-auth.ts",
   "tools/cli/README.md",
+  // Test fixture for the redaction module: contains intentional fake
+  // secret patterns whose whole purpose is to verify the redactor scrubs
+  // them. Functionally identical to tools/cli/test/fixtures/, just lives
+  // in a different package.
+  "artifacts/api-server/src/lib/__tests__/redaction.test.ts",
 ]);
 
 const PATTERN_DEFINITION_PREFIXES: readonly string[] = [
   "tools/cli/test/fixtures/",
   "artifacts/checklist/src/data/checklist/",
+  "lib/checklist-data/src/",
 ];
 
 export function isScanExempt(relPath: string): boolean {
@@ -114,6 +140,53 @@ export function isScanExempt(relPath: string): boolean {
     if (p.startsWith(prefix) || p.includes("/" + prefix)) return true;
   }
   return false;
+}
+
+export function isLikelyNonRuntimePath(relPath: string): boolean {
+  const p = relPosix(relPath).toLowerCase();
+  const base = path.basename(p);
+  if (base.endsWith(".d.ts")) return true;
+  if (
+    /\.(test|spec)\.(ts|tsx|js|jsx|mjs|cjs)$/.test(base) ||
+    p.includes("/__tests__/") ||
+    p.includes("/test/") ||
+    p.includes("/tests/")
+  ) {
+    return true;
+  }
+  if (p === "claude.md" || p === "agents.md" || p === "devops.md") return true;
+  if (
+    p.startsWith("docs/") ||
+    p.includes("/docs/") ||
+    p.startsWith("scripts/") ||
+    p.includes("/scripts/") ||
+    p.startsWith("examples/") ||
+    p.includes("/examples/") ||
+    p.startsWith("artifacts/mockup-sandbox/") ||
+    p.includes("/artifacts/mockup-sandbox/")
+  ) {
+    return true;
+  }
+  return false;
+}
+
+// shadcn/ui-style UI primitives live under `components/ui/*` by convention.
+// They are LIBRARY code — not the app's auth flow, not where the framework's
+// HTML-injection prop is a real risk. Flagging them as launch blockers
+// produces false positives on every shadcn-using vibe-coded project.
+// Used by dangerous.ts and otp-auth.ts to skip these paths.
+export function isUiLibraryPrimitive(relPath: string): boolean {
+  const p = relPosix(relPath).toLowerCase();
+  return (
+    p.startsWith("components/ui/") ||
+    p.includes("/components/ui/") ||
+    p.startsWith("src/components/ui/") ||
+    p.includes("/src/components/ui/") ||
+    p.startsWith("app/components/ui/") ||
+    p.includes("/app/components/ui/") ||
+    p.startsWith("ui/") ||
+    p.includes("/shadcn/ui/")
+  );
 }
 
 /**

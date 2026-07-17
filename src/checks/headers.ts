@@ -1,6 +1,7 @@
 import * as path from "node:path";
 import { readFileSafe } from "../scan.js";
 import type { CheckContext, Finding } from "./types.js";
+import { makeFinding } from "./make-finding.js";
 
 const SECURITY_HEADER_NAMES = [
   "Strict-Transport-Security",
@@ -119,12 +120,12 @@ export async function checkSecurityHeaders(
   }
 
   return [
-    {
+    makeFinding({
       checkId: "missing-security-headers",
       itemId: "https-headers",
       severity: "high",
       message:
         "Couldn't find any common security headers (CSP, HSTS, X-Frame-Options, etc.) or helmet() middleware in your server/host configs. Add them so the browser enforces baseline defenses.",
-    },
+    }),
   ];
 }

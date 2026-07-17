@@ -3,6 +3,7 @@ import { fileExists, isTextFile, readFileSafe } from "../scan.js";
 import type { Severity } from "../items.js";
 import type { CheckContext, Finding } from "./types.js";
 import { findLine, isScanExempt, relPosix } from "./helpers.js";
+import { makeFinding } from "./make-finding.js";
 
 interface SecretPattern {
   id: string;
@@ -87,9 +88,63 @@ const SECRET_PATTERNS: SecretPattern[] = [
   },
   {
     id: "twilio-account-sid",
-    name: "Twilio Account SID",
+    name: "Twilio Account SID (public identifier — check the Auth Token isn't nearby)",
+    // The Account SID is a public identifier; the Auth Token is the real
+    // secret. Flag it low as a locator, not a critical leak.
     regex: /\bAC[a-f0-9]{32}\b/,
+    severity: "lower",
+  },
+  {
+    id: "stripe-test-secret",
+    name: "Stripe test secret key",
+    regex: /\bsk_test_[A-Za-z0-9]{16,}\b/,
     severity: "high",
+  },
+  {
+    id: "stripe-restricted-live",
+    name: "Stripe restricted live key",
+    regex: /\brk_live_[A-Za-z0-9]{16,}\b/,
+    severity: "critical",
+  },
+  {
+    id: "stripe-webhook-secret",
+    name: "Stripe webhook signing secret",
+    regex: /\bwhsec_[A-Za-z0-9]{16,}\b/,
+    severity: "critical",
+  },
+  {
+    id: "resend-key",
+    name: "Resend API key",
+    regex: /\bre_[A-Za-z0-9]{16,}\b/,
+    severity: "critical",
+  },
+  {
+    id: "supabase-secret-key",
+    name: "Supabase secret key",
+    regex: /\bsb_secret_[A-Za-z0-9_-]{20,}\b/,
+    severity: "critical",
+  },
+  {
+    id: "github-fine-grained-pat",
+    name: "GitHub fine-grained personal access token",
+    regex: /\bgithub_pat_[A-Za-z0-9_]{22,}\b/,
+    severity: "critical",
+  },
+  {
+    id: "github-oauth-token",
+    name: "GitHub OAuth / app token",
+    regex: /\bgh[ousr]_[A-Za-z0-9]{30,}\b/,
+    severity: "critical",
+  },
+  {
+    id: "db-connection-uri",
+    name: "database connection string with embedded credentials",
+    // Only flags a real hosted DB URL that embeds a password: the host must be
+    // a real domain (has a dot + TLD) and not a documentation placeholder like
+    // localhost / host / example, so README snippets don't false-positive.
+    regex:
+      /\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|rediss?|amqps?):\/\/[^\s:@/]+:[^\s@/]{4,}@(?!localhost|host\b|hostname|your[-_]|example|changeme|127\.0\.0\.1|0\.0\.0\.0)[a-z0-9.-]+\.[a-z]{2,}/i,
+    severity: "critical",
   },
 ];
 
@@ -138,15 +193,17 @@ export async function checkHardcodedSecrets(
       if (matchedRanges.some(([s, e]) => start < e && end > s)) continue;
       matchedRanges.push([start, end]);
       const line = findLine(content, start);
-      findings.push({
-        checkId: `secret-${pat.id}`,
-        itemId: "secrets",
-        severity: pat.severity,
-        message: `Possible ${pat.name} hardcoded in source.`,
-        file: relPosix(file.relPath),
-        line,
-        evidence: `${m[0].slice(0, 6)}…${m[0].slice(-4)} (${m[0].length} chars)`,
-      });
+      findings.push(
+        makeFinding({
+          checkId: `secret-${pat.id}`,
+          itemId: "secrets",
+          severity: pat.severity,
+          message: `Possible ${pat.name} hardcoded in source.`,
+          file: relPosix(file.relPath),
+          line,
+          evidence: `${m[0].slice(0, 6)}…${m[0].slice(-4)} (${m[0].length} chars)`,
+        }),
+      );
     }
 
     JWT_REGEX.lastIndex = 0;
@@ -161,25 +218,29 @@ export async function checkHardcodedSecrets(
         !!payload && /"role"\s*:\s*"service_role"/.test(payload);
       const line = findLine(content, start);
       if (isServiceRole) {
-        findings.push({
-          checkId: "secret-supabase-service-role-jwt",
-          itemId: "secrets",
-          severity: "critical",
-          message: "Possible Supabase service-role JWT hardcoded in source.",
-          file: relPosix(file.relPath),
-          line,
-          evidence: `${jm[0].slice(0, 6)}…${jm[0].slice(-4)} (${jm[0].length} chars)`,
-        });
+        findings.push(
+          makeFinding({
+            checkId: "secret-supabase-service-role-jwt",
+            itemId: "secrets",
+            severity: "critical",
+            message: "Possible Supabase service-role JWT hardcoded in source.",
+            file: relPosix(file.relPath),
+            line,
+            evidence: `${jm[0].slice(0, 6)}…${jm[0].slice(-4)} (${jm[0].length} chars)`,
+          }),
+        );
       } else {
-        findings.push({
-          checkId: "secret-jwt",
-          itemId: "secrets",
-          severity: "high",
-          message: "Possible JWT hardcoded in source.",
-          file: relPosix(file.relPath),
-          line,
-          evidence: `${jm[0].slice(0, 6)}…${jm[0].slice(-4)} (${jm[0].length} chars)`,
-        });
+        findings.push(
+          makeFinding({
+            checkId: "secret-jwt",
+            itemId: "secrets",
+            severity: "high",
+            message: "Possible JWT hardcoded in source.",
+            file: relPosix(file.relPath),
+            line,
+            evidence: `${jm[0].slice(0, 6)}…${jm[0].slice(-4)} (${jm[0].length} chars)`,
+          }),
+        );
       }
       break;
     }
@@ -215,14 +276,27 @@ function looksLikeConfigFile(relPath: string): boolean {
 
 const CONFIG_ASSIGNMENT_REGEX =
   /^[ \t]*([A-Za-z_][A-Za-z0-9_]*)[ \t]*=[ \t]*(?:"([^"\n]+)"|'([^'\n]+)'|([^\s#"'][^\s#]*))/gm;
-const VITE_SECRET_KEY_REGEX =
-  /^VITE_[A-Z0-9_]*(?:SECRET|TOKEN|KEY|PASSWORD|CREDENTIAL|PRIVATE)$/;
+// Any of these prefixes inlines the value into the client bundle at build
+// time (Vite, Next.js, Expo, CRA, SvelteKit/Astro, Nuxt, Gatsby). A variable
+// named like a secret under one of them is exposed to every visitor.
+const PUBLIC_ENV_PREFIX =
+  "(?:VITE_|NEXT_PUBLIC_|EXPO_PUBLIC_|PUBLIC_|REACT_APP_|NUXT_PUBLIC_|GATSBY_)";
+const CLIENT_SECRET_KEY_REGEX = new RegExp(
+  `^${PUBLIC_ENV_PREFIX}[A-Z0-9_]*(?:SECRET|TOKEN|KEY|PASSWORD|CREDENTIAL|PRIVATE|SERVICE_ROLE)$`,
+);
+// A variable literally named *PUBLIC_KEY is an asymmetric *public* key — those
+// are meant to be shipped to the client. Don't flag them as browser-exposed
+// secrets just because the name ends in KEY under a public build-time prefix.
+const PUBLIC_KEY_ARTIFACT_REGEX = /(^|_)PUBLIC_KEY$/;
 const HEX_SECRET_REGEX = /^[A-Fa-f0-9]{32,}$/;
 const BASE64_SECRET_REGEX = /^[A-Za-z0-9+/_-]{40,}={0,2}$/;
 const TEMPLATED_VALUE_REGEX = /\$\{[^}]+\}|\$[A-Za-z_][A-Za-z0-9_]*/;
 
 const CONFIG_KEY_ALLOWLIST = new Set([
   "DATABASE_URL", // contains URL/host fragments, handled by other rules
+  "account_id", // Cloudflare account id in wrangler.toml is public metadata
+  "database_id", // Cloudflare D1 database ids are public resource ids
+  "CLOUDFLARE_ACCOUNT_ID",
 ]);
 
 export async function checkConfigSecretLeaks(
@@ -244,38 +318,53 @@ export async function checkConfigSecretLeaks(
       const value = (m[2] ?? m[3] ?? m[4] ?? "").trim();
       if (!value) continue;
       if (TEMPLATED_VALUE_REGEX.test(value)) continue;
+      // A *PUBLIC_KEY variable is an asymmetric public key — a legitimately
+      // public artifact, not a leaked secret. Skip both branches (a genuine
+      // committed PRIVATE key is still caught by the PEM block detector in
+      // checkHardcodedSecrets regardless of the var name).
+      if (PUBLIC_KEY_ARTIFACT_REGEX.test(key)) continue;
       const line = findLine(content, m.index);
 
-      // 1. Browser-exposed VITE_ variable named like a secret. Severity: high
-      //    regardless of value, because the *name* itself is the bug.
-      if (VITE_SECRET_KEY_REGEX.test(key)) {
-        findings.push({
-          checkId: "config-vite-prefixed-secret",
-          itemId: "secrets",
-          severity: "high",
-          message: `${key} is set in ${relPosix(file.relPath)}. Variables prefixed with VITE_ are baked into the browser bundle by Vite at build time and are readable by every visitor — they are not secrets. Rename the variable (drop VITE_) and access it server-side only, or move the signing/auth flow behind a backend endpoint.`,
-          file: relPosix(file.relPath),
-          line,
-          evidence: `${key}=${value.slice(0, 4)}…${value.slice(-2)} (${value.length} chars)`,
-        });
+      // 1. Browser-exposed public-prefixed variable named like a secret.
+      //    Severity: high regardless of value, because the *name* is the bug —
+      //    the value ships to every visitor in the client bundle.
+      if (CLIENT_SECRET_KEY_REGEX.test(key)) {
+        findings.push(
+          makeFinding({
+            checkId: "config-client-prefixed-secret",
+            itemId: "secrets",
+            severity: "high",
+            message: `${key} is set in ${relPosix(file.relPath)}. Variables with a public build-time prefix (VITE_, NEXT_PUBLIC_, EXPO_PUBLIC_, REACT_APP_, PUBLIC_, NUXT_PUBLIC_, GATSBY_) are inlined into the browser bundle and readable by every visitor — they are not secrets. Drop the public prefix and read it server-side only, or move the signing/auth flow behind a backend endpoint.`,
+            file: relPosix(file.relPath),
+            line,
+            evidence: `${key}=${value.slice(0, 4)}…${value.slice(-2)} (${value.length} chars)`,
+          }),
+        );
         continue;
       }
 
       // 2. Anything else: high-entropy hardcoded credential value.
       if (CONFIG_KEY_ALLOWLIST.has(key)) continue;
+      // Dedupe: a value that is a recognizable provider secret token (sk_live_,
+      // sk-ant-, AKIA…, etc.) is already flagged — more precisely — by
+      // checkHardcodedSecrets. Don't also count it here as a generic
+      // hex/base64 credential; one physical secret must yield one finding.
+      if (SECRET_PATTERNS.some((p) => p.regex.test(value))) continue;
       const isHex = HEX_SECRET_REGEX.test(value);
       const isBase64 = BASE64_SECRET_REGEX.test(value);
       if (!isHex && !isBase64) continue;
 
-      findings.push({
-        checkId: "config-hardcoded-credential",
-        itemId: "secrets",
-        severity: "critical",
-        message: `${key} in ${relPosix(file.relPath)} looks like a hardcoded credential (${value.length}-char ${isHex ? "hex" : "base64-shaped"} value). Move it to your platform's secret store (Railway / Vercel / Fly env vars, or a dedicated vault) and reference it from there. Rotate the leaked value at the source.`,
-        file: relPosix(file.relPath),
-        line,
-        evidence: `${key}=${value.slice(0, 4)}…${value.slice(-2)} (${value.length} chars)`,
-      });
+      findings.push(
+        makeFinding({
+          checkId: "config-hardcoded-credential",
+          itemId: "secrets",
+          severity: "critical",
+          message: `${key} in ${relPosix(file.relPath)} looks like a hardcoded credential (${value.length}-char ${isHex ? "hex" : "base64-shaped"} value). Move it to your platform's secret store (Railway / Vercel / Fly env vars, or a dedicated vault) and reference it from there. Rotate the leaked value at the source.`,
+          file: relPosix(file.relPath),
+          line,
+          evidence: `${key}=${value.slice(0, 4)}…${value.slice(-2)} (${value.length} chars)`,
+        }),
+      );
     }
   }
   return findings;

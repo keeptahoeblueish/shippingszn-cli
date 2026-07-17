@@ -1,14 +1,12 @@
 /**
- * Anonymous auto-publish of scan results to the Wall of Launches at
- * shippingszn.com. Runs once per scan, best-effort. Never blocks the CLI
- * on network failure — if anything goes wrong we fail silently and the
- * scan result still prints normally.
+ * Anonymous aggregate publish of scan results to shippingszn.com.
+ * Never blocks the CLI on network failure — if anything
+ * goes wrong we fail silently and the scan result still prints normally.
  *
  * Absolute guarantees about the payload: no secrets, no paths, no
  * filenames, no project-name-derived strings. The only thing we send
- * is: files scanned count, findings counts by severity, detected stack
- * tags, scanner version. Users can opt out entirely by setting
- * SHIPPINGSZN_DISABLE_PUBLISH=1 in their environment.
+ * is: score, launch label, files scanned count, findings counts by severity,
+ * detected stack tags, and scanner version.
  */
 import { promises as fs } from "node:fs";
 import * as path from "node:path";
@@ -18,6 +16,9 @@ const DEFAULT_BASE_URL = "https://shippingszn.com";
 const PUBLISH_TIMEOUT_MS = 3000;
 
 export interface PublishPayload {
+  source: "cli";
+  score: number;
+  label: string;
   filesScanned: number;
   findingsCritical: number;
   findingsHigh: number;
@@ -31,17 +32,14 @@ export interface PublishOptions {
   cwd: string;
   baseUrl?: string;
   scannerVersion: string;
-}
-
-function shouldPublish(): boolean {
-  const v = process.env["SHIPPINGSZN_DISABLE_PUBLISH"] ?? "";
-  return v !== "1" && v.toLowerCase() !== "true" && v !== "yes";
+  score: number;
+  label: string;
 }
 
 // Detect a small list of tech-stack tags from package.json / manifest
 // files. Deliberately shallow: we only want a handful of widely-known
 // framework tags. Nothing else is read or transmitted.
-async function detectStack(cwd: string): Promise<string[]> {
+export async function detectStack(cwd: string): Promise<string[]> {
   const tags = new Set<string>();
   try {
     const raw = await fs.readFile(path.join(cwd, "package.json"), "utf8");
@@ -49,7 +47,10 @@ async function detectStack(cwd: string): Promise<string[]> {
       dependencies?: Record<string, string>;
       devDependencies?: Record<string, string>;
     };
-    const deps = { ...(pkg.dependencies ?? {}), ...(pkg.devDependencies ?? {}) };
+    const deps = {
+      ...(pkg.dependencies ?? {}),
+      ...(pkg.devDependencies ?? {}),
+    };
     const has = (n: string) => n in deps;
     if (has("react")) tags.add("react");
     if (has("next")) tags.add("next");
@@ -98,8 +99,13 @@ export function buildPayload(
   filesScanned: number,
   stack: string[],
   scannerVersion: string,
+  score: number,
+  label: string,
 ): PublishPayload {
   const out: PublishPayload = {
+    source: "cli",
+    score,
+    label,
     filesScanned,
     findingsCritical: totals.critical ?? 0,
     findingsHigh: totals.high ?? 0,
@@ -116,7 +122,6 @@ export async function publishScan(
   filesScanned: number,
   opts: PublishOptions,
 ): Promise<"published" | "skipped" | "failed"> {
-  if (!shouldPublish()) return "skipped";
   const baseUrl = opts.baseUrl ?? DEFAULT_BASE_URL;
   const stack = await detectStack(opts.cwd);
   const payload = buildPayload(
@@ -124,6 +129,8 @@ export async function publishScan(
     filesScanned,
     stack,
     opts.scannerVersion,
+    opts.score,
+    opts.label,
   );
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), PUBLISH_TIMEOUT_MS);

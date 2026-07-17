@@ -3,6 +3,7 @@ import { isTextFile, readFileSafe, type ScannedFile } from "../scan.js";
 import type { Severity } from "../items.js";
 import type { CheckContext, Finding } from "./types.js";
 import { findLine, relPosix } from "./helpers.js";
+import { makeFinding } from "./make-finding.js";
 
 interface LangPattern {
   id: string;
@@ -125,14 +126,14 @@ export async function checkLanguagePatterns(ctx: CheckContext): Promise<Finding[
       const m = pat.regex.exec(content);
       if (!m) continue;
       const line = findLine(content, m.index);
-      findings.push({
+      findings.push(makeFinding({
         checkId: pat.id,
         itemId: pat.itemId,
         severity: pat.severity,
         message: pat.message,
         file: relPosix(file.relPath),
         line,
-      });
+      }));
     }
   }
   return findings;
@@ -196,18 +197,18 @@ export async function checkPythonSecretKeyEnv(ctx: CheckContext): Promise<Findin
 
   if (!mentionsSecretKey) {
     return [
-      {
+      makeFinding({
         checkId: "py-missing-secret-key-env",
         itemId: "secrets",
         severity: "high",
         message:
           "Detected a Django/Flask project but couldn't find SECRET_KEY anywhere in your settings. Configure it from an env var (e.g. os.environ['SECRET_KEY']) before deploying.",
         file: relPosix(candidates[0].file.relPath),
-      },
+      }),
     ];
   }
   return [
-    {
+    makeFinding({
       checkId: "py-secret-key-not-from-env",
       itemId: "secrets",
       severity: "high",
@@ -215,7 +216,7 @@ export async function checkPythonSecretKeyEnv(ctx: CheckContext): Promise<Findin
         "Django/Flask SECRET_KEY is set in source but not read from an environment variable. Pull it from os.environ / os.getenv (or python-decouple / django-environ) so the real value stays out of the repo.",
       file: firstMention ? relPosix(firstMention.file.relPath) : undefined,
       line: firstMention?.line,
-    },
+    }),
   ];
 }
 
@@ -275,17 +276,17 @@ export async function checkRubySecretKeyBaseEnv(ctx: CheckContext): Promise<Find
 
   if (!mentionsSecret) {
     return [
-      {
+      makeFinding({
         checkId: "rb-missing-secret-key-base-env",
         itemId: "secrets",
         severity: "high",
         message:
           "Detected a Rails project but couldn't find secret_key_base wired up to ENV['SECRET_KEY_BASE'] or Rails.application.credentials anywhere in config/. Configure it before deploying.",
-      },
+      }),
     ];
   }
   return [
-    {
+    makeFinding({
       checkId: "rb-secret-key-base-not-from-env",
       itemId: "secrets",
       severity: "high",
@@ -293,6 +294,6 @@ export async function checkRubySecretKeyBaseEnv(ctx: CheckContext): Promise<Find
         "Rails secret_key_base is referenced in config/ but not pulled from ENV['SECRET_KEY_BASE'] or Rails.application.credentials. Move the real value out of source.",
       file: firstMention ? relPosix(firstMention.file.relPath) : undefined,
       line: firstMention?.line,
-    },
+    }),
   ];
 }

@@ -1,6 +1,7 @@
 import { readFileSafe } from "../scan.js";
 import type { CheckContext, Finding } from "./types.js";
 import { findPublicDirs, isAssetEmittedDynamically } from "./helpers.js";
+import { makeFinding } from "./make-finding.js";
 
 /**
  * Parse a robots.txt body and return true if the `User-agent: *` block (or
@@ -59,12 +60,12 @@ export async function checkRobotsTxt(ctx: CheckContext): Promise<Finding[]> {
   const dirs = await findPublicDirs(ctx);
   if (dirs.length === 0) return [];
   return [
-    {
+    makeFinding({
       checkId: "missing-robots-txt",
       itemId: "seo",
       severity: "medium",
       message: `No robots.txt found in any public directory (looked in: ${dirs.join(", ")}). Add one so search engines know what to crawl.`,
-    },
+    }),
   ];
 }
 
@@ -79,12 +80,12 @@ export async function checkSitemapXml(ctx: CheckContext): Promise<Finding[]> {
   // Suppress the nag — the site owner has made a deliberate choice.
   if (await hasDisallowAllRobots(ctx)) return [];
   return [
-    {
+    makeFinding({
       checkId: "missing-sitemap-xml",
       itemId: "seo",
       severity: "medium",
       message: `No sitemap.xml found in any public directory (looked in: ${dirs.join(", ")}). Add one to help search engines index your pages.`,
-    },
+    }),
   ];
 }
 
@@ -96,12 +97,45 @@ export async function checkFavicon(ctx: CheckContext): Promise<Finding[]> {
   const has = ctx.files.some((f) => faviconRegex.test(f.relPath));
   if (has) return [];
   return [
-    {
+    makeFinding({
       checkId: "missing-favicon",
       itemId: "launch-polish",
       severity: "lower",
       message:
-        "No custom favicon found in your public directory. The default browser favicon (or the framework starter one) tells visitors this is a vibe-coded project.",
-    },
+        "No custom favicon found in your public directory. The default browser favicon (or the framework starter one) tells visitors this is an unfinished AI-built project.",
+    }),
+  ];
+}
+
+export async function checkLlmsTxt(ctx: CheckContext): Promise<Finding[]> {
+  const has = ctx.files.some((f) => /(^|\/)llms\.txt$/i.test(f.relPath));
+  if (has) return [];
+  if (await isAssetEmittedDynamically(ctx, "llms.txt")) return [];
+  const dirs = await findPublicDirs(ctx);
+  if (dirs.length === 0) return [];
+  return [
+    makeFinding({
+      checkId: "missing-llms-txt",
+      itemId: "aeo",
+      severity: "lower",
+      message: `No llms.txt found in any public directory (looked in: ${dirs.join(", ")}). Add one so AI crawlers (ChatGPT, Perplexity, Claude) can understand your site.`,
+    }),
+  ];
+}
+
+export async function checkPwaManifest(ctx: CheckContext): Promise<Finding[]> {
+  const dirs = await findPublicDirs(ctx);
+  if (dirs.length === 0) return [];
+  const manifestRegex =
+    /(^|\/)(manifest\.(json|webmanifest)|site\.webmanifest)$/i;
+  const has = ctx.files.some((f) => manifestRegex.test(f.relPath));
+  if (has) return [];
+  return [
+    makeFinding({
+      checkId: "missing-pwa-manifest",
+      itemId: "installable-app",
+      severity: "lower",
+      message: `No PWA manifest found in any public directory (looked in: ${dirs.join(", ")}). Add manifest.json (or site.webmanifest) so users can install your app to their phone's home screen.`,
+    }),
   ];
 }
