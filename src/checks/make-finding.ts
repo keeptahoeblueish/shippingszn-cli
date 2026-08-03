@@ -13,8 +13,8 @@ export interface MakeFindingInput {
 
 /**
  * Build a diagnosis-only Finding. The paid remediation content (the curated
- * fix instructions and AI-builder prompts) is NOT attached here — it lives
- * server-side and is served only to authorized Fix Kit viewers, so this
+ * cliPrompt fields) is NOT attached here — it lives server-side and is enriched
+ * from @workspace/checklist-data at serve time for authorized viewers, so the
  * open-source CLI neither bundles nor uploads it.
  */
 export function makeFinding(input: MakeFindingInput): Finding {

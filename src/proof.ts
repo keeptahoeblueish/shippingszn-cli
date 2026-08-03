@@ -1,6 +1,7 @@
 import type { Finding } from "./checks.js";
 import type { Severity } from "./items.js";
 import type { NormalizedLaunchFinding } from "./vendor/launch-readiness/index.js";
+import { projectFingerprint } from "./project-fingerprint.js";
 
 const PROOF_TIMEOUT_MS = 5000;
 const MAX_FINDINGS = 100;
@@ -75,6 +76,14 @@ function locationFromFinding(finding: ProofFinding): string | undefined {
   return finding.line ? `${finding.file}:${finding.line}` : finding.file;
 }
 
+function safeFindingBody(finding: ProofFinding): string {
+  return `The local scanner detected a ${finding.severity} ${finding.itemTitle || "launch-readiness"} finding. Open the paid Launch Fix Kit for the diagnostic and remediation prompt.`;
+}
+
+function safeFindingEvidence(finding: ProofFinding): string {
+  return `Detection category: ${finding.checkId}. Matched source text is intentionally omitted.`;
+}
+
 export function buildBadgeMarkdown(baseUrl: string, id: string, score: number) {
   const params = new URLSearchParams({
     scanResultId: id,
@@ -100,6 +109,7 @@ export function buildProofPayload(
     source: report.source ?? ("cli" as const),
     scanner: "shippingszn" as const,
     targetName: "Anonymous CLI scan",
+    projectFingerprint: projectFingerprint(report.cwd),
     score: report.launchReadiness.score,
     label: report.launchReadiness.label,
     decision: report.launchReadiness.decision,
@@ -112,8 +122,8 @@ export function buildProofPayload(
       itemId: finding.itemId,
       severity: finding.severity,
       title: clampText(finding.itemTitle || finding.checkId, 160),
-      body: clampText(finding.message, 3000),
-      evidence: clampText(finding.evidence, 3000),
+      body: clampText(safeFindingBody(finding), 3000),
+      evidence: clampText(safeFindingEvidence(finding), 3000),
       confidence: finding.confidence,
       ...(locationFromFinding(finding)
         ? { location: clampText(locationFromFinding(finding)!, 500) }
@@ -122,7 +132,8 @@ export function buildProofPayload(
       itemTitle: clampText(finding.itemTitle, 160),
     })),
     filesScanned: report.filesScanned,
-    topNextStep: clampText(report.launchReadiness.topNextStep, 1000),
+    topNextStep:
+      "Review the highest-severity finding in the paid Launch Fix Kit.",
     reportRecommended: report.launchReadiness.reportRecommended,
     ...(report.launchReadiness.reportUrl
       ? { reportUrl: report.launchReadiness.reportUrl }

@@ -1,46 +1,33 @@
 # shippingszn
 
-`shippingszn` is a local, read-only launch-readiness scanner for apps built with
-AI. It runs inside the project you are about to ship and reads your files to
-catch the launch debt AI builders commonly miss — leaked API keys, missing crawl
-assets, weak browser defenses, dangerous code patterns, unguarded routes, and
-last-mile polish gaps — then prints a 0-100 readiness score, a launch verdict,
-and every finding with the file and line it came from. It never writes to your
-project and needs no account to run.
-
-## Install / usage
+Primary local launch inspector for AI-built apps. Run it inside the app you are
+about to ship to catch the launch debt AI builders commonly miss: leaked API
+keys, missing crawl assets, weak browser defenses, dangerous code patterns, and
+last-mile polish gaps.
 
 ```bash
-npx shippingszn@latest          # scan the current directory
-npx shippingszn@latest ./path   # scan a specific directory
-npx shippingszn@latest --no-telemetry   # run fully offline, zero network calls
+npx shippingszn@latest
 # or
 pnpm dlx shippingszn@latest
 ```
 
-This is the open-source scanner. The optional paid **Launch Fix Kit** — the
-remediation layer with per-finding fixes, prompts to paste straight into your AI
-builder, the 58-item launch workbook, unlimited re-scans, and launch monitoring
-— lives at <https://shippingszn.com/fix-kit>. The scanner is free and always
-will be; the Fix Kit is how you fix what it finds.
-
 The CLI **never writes, modifies, or deletes** any files - it only reads. (The
 one exception is a tiny first-run marker under your config dir,
 `~/.config/shippingszn/seen`, used to show the telemetry notice once.) By
-default each run makes two anonymous requests: a scan handoff for checkout that
-carries finding-level detail (severity, checklist item, `file:line`, and a short
-evidence snippet — secret values always redacted before upload), and an
-aggregate Wall summary with score, severity counts, files scanned, scanner
-version, and safe stack tags. Neither uploads full source files, repo URLs,
-project names, unredacted secrets, handles, or emails. Pass `--no-telemetry` to
-run fully offline (zero network calls). Details in [Telemetry](#telemetry).
+default each run creates a scan handoff for checkout and sends one anonymous
+Wall report-card summary with score, severity counts, files scanned, scanner
+version, and safe stack tags. The handoff includes a stable opaque project
+fingerprint so shippingszn can recognize matched paid rescans without receiving
+the repo URL, project name, or absolute project path. It never uploads matched
+source lines, source-file contents, unredacted secrets, handles, or emails.
+Pass `--no-telemetry` to run fully offline (zero network calls).
 
-**The free scan is the full diagnosis.** Human output prints a verdict, a
-higher-is-better Readiness Score, severity counts, and **every finding grouped
-by severity** — its severity, the checklist item it maps to, the `file:line`,
-and what's wrong — plus completed-checks coverage and the Fix Kit CTA. Run with
-`--json` to get the same in a machine-readable shape, including the full
-`findings` array:
+**The free scan is the launch scoreboard.** Its result contains only a verdict,
+a higher-is-better Readiness Score, severity counts, and a launch band. It does
+not reveal finding titles, checklist content, file paths, evidence, fix steps,
+or AI-builder prompts. The Fix Kit CTA and locked handoff metadata stay visible
+so the matched project can be purchased. Run with `--json` to get the same
+score-level result in a machine-readable shape:
 
 ```json
 {
@@ -48,20 +35,8 @@ and what's wrong — plus completed-checks coverage and the Fix Kit CTA. Run wit
   "band": "fix_first",
   "counts": { "critical": 0, "high": 11, "medium": 1, "lower": 1 },
   "filesScanned": 128,
-  "coverage": { "checksCompleted": 19, "checklistAreas": 51 },
-  "scannerVersion": "0.10.0",
-  "findings": [
-    {
-      "checkId": "hardcoded-secrets",
-      "itemId": "secrets",
-      "severity": "high",
-      "itemTitle": "Lock up your API keys and passwords",
-      "file": "src/lib/config.ts",
-      "line": 12,
-      "message": "Possible hardcoded API key detected.",
-      "permalink": "https://shippingszn.com/i/secrets"
-    }
-  ],
+  "scannerVersion": "0.11.0",
+  "detailsLocked": true,
   "unlockUrl": "https://shippingszn.com/fix-kit?scanResultId=00000000-0000-4000-8000-000000000123",
   "scanHandoff": {
     "status": "uploaded",
@@ -71,30 +46,45 @@ and what's wrong — plus completed-checks coverage and the Fix Kit CTA. Run wit
 }
 ```
 
-The findings are free. What's **paid** is the remediation layer: per-finding fix
-instructions, prompts to paste straight into your AI builder, the 58-item launch
-workbook, unlimited re-scans, and launch monitoring. The free CLI tells you
-exactly what's wrong; the Launch Fix Kit is how you fix it.
+### Upgrading from 0.10.x
+
+Version 0.11 intentionally removes the `findings` array from free human and
+JSON output. JSON responses now set `detailsLocked` to `true` and expose only
+the score, severity counts, launch band, and paid handoff metadata. The 0.10
+line is superseded and unsupported; consumers of its old finding-level JSON
+must migrate to the score-level 0.11 contract.
+
+One $49 Launch Fix Kit is bound to one matched project. It includes the exact
+findings, file evidence, per-finding fix instructions, AI-builder prompts, the
+full 58-item launch workbook, and unlimited matched re-scans for that project.
+One global Codex OAuth connection works from any local Codex project, but paid
+data for an unrelated project is denied. Checkout purchases the Fix Kit but
+does not sign you in; OTP sign-in is required before paid report or OAuth
+access. Legacy purchases that predate secure project binding must be opened
+from the original browser account and linked through support. Recurring launch
+monitoring is a separate product and is not included in the Fix Kit.
 
 ## Telemetry
 
-Plain `npx shippingszn@latest` makes **two** anonymous requests per run:
+Plain `npx shippingszn@latest` makes **two** telemetry requests per run. The
+locked handoff is pseudonymous; the Wall ping is anonymous:
 
 1. **Scan handoff** (`POST /api/scan-results`) — powers the `/fix-kit` link the
-   CLI prints. It carries finding-level detail: each finding's severity, the
-   checklist item it maps to, its `file:line` location, and a short evidence
-   snippet from the matched line. Secret values are always redacted to a
-   `abc123…x9z2` form before upload. It does not include your repo URL, project
-   name, or full source files.
-2. **Aggregate Wall summary** (`POST /api/wall`) — intentionally small: score,
+   CLI prints. It carries a stable pseudonymous project fingerprint used only
+   to match paid rescans and enforce one-project access. It also carries each
+   finding's severity, checklist item, `file:line` location, and a short derived
+   or redacted evidence category. It never carries matched source lines,
+   source-file contents, the repo URL, project name, absolute project path, or
+   unredacted secret values.
+2. **Aggregate Wall ping** (`POST /api/wall`) — intentionally small: score,
    launch label, files scanned, finding counts by severity, detected stack
    tags, scanner version, and timestamp. No paths, no filenames, no
    finding-level detail.
 
-On the **first run on a machine**, the CLI prints a description of both requests
-plus the exact aggregate payload (to stderr, so it never corrupts `--json`
-output) and a note that you can turn it off. Telemetry is default-on but fully
-transparent and opt-out-able:
+On the **first run on a machine**, the CLI prints a description of both requests,
+including the stable project fingerprint category, plus the exact aggregate
+payload (to stderr, so it never corrupts `--json` output) and a note that you
+can turn it off. Telemetry is default-on but fully transparent and opt-out-able:
 
 ```bash
 npx shippingszn@latest --no-telemetry   # zero network calls, fully offline
@@ -105,8 +95,9 @@ npx shippingszn@latest --no-telemetry   # zero network calls, fully offline
 
 The same run also creates a scan-specific paid-report handoff. The terminal
 prints a `/fix-kit?scanResultId=...` URL so checkout can carry that scan into
-the Launch Fix Kit after purchase. `--proof` is still accepted for old docs, but
-it is no longer required.
+the project-bound Launch Fix Kit after purchase. Checkout does not sign you in;
+complete OTP sign-in to open the paid Kit. `--proof` is still accepted for old
+docs, but it is no longer required.
 
 ## What gets checked
 
@@ -132,10 +123,10 @@ maps back to one of the items on the checklist.
 - Placeholder content (`lorem ipsum`, `John Doe`, `test@example.com`) and
   `TODO` / `FIXME` / `XXX` / `HACK` comments.
 
-Each finding is tagged Critical, High, Medium, or Lower and maps to the relevant
-checklist item. All of that finding-level detail is free and printed on every
-run; the Fix Kit turns it into the human launch decision and AI-builder punch
-list of fixes.
+Internally, each finding is tagged Critical, High, Medium, or Lower and maps to
+the relevant checklist item. The free output rolls those findings into the
+scoreboard. The Fix Kit opens the finding-level diagnosis, human launch
+decision, and AI-builder punch list.
 
 ## Scoring
 
@@ -213,8 +204,8 @@ rerun loop before you ship.
 shippingszn [path] [options]
 
 Options:
-  --json                Output a machine-readable JSON summary (includes the
-                        full findings array).
+  --json                Output a machine-readable score, severity counts, and
+                        launch band summary.
   --no-telemetry        Run fully offline: no scan handoff, no Wall ping, zero
                         network calls. (--no-wall is an alias.)
   --proof               Backward-compatible alias. Normal runs already return
@@ -240,18 +231,22 @@ This makes the CLI suitable for CI:
 ```
 
 For PR scan signal, have GitHub Actions run the scanner and post the JSON
-summary as a comment: score, severity counts, findings, and unlock URL.
+summary as a comment: score, severity counts, launch band, and unlock URL.
 
 ## Privacy
 
 `shippingszn` reads files on your machine. It never uploads source code. By
-default it creates a scan handoff for checkout and makes one best-effort
-outbound request to post anonymous Wall stats: score, launch label, files
-scanned count, finding counts by severity, detected stack tags, scanner version,
-and timestamp. Wall stats never include source code, file paths, filenames,
-project names, repo URLs, secrets, emails, handles, finding titles, evidence, or
-report contents. The first run on a machine prints the exact payload to stderr,
-and `--no-telemetry` (alias `--no-wall`) turns off all network calls.
+default it makes two requests. The locked checkout handoff contains a stable
+pseudonymous project fingerprint plus each finding's severity, checklist item,
+relative file-and-line location, and short derived or redacted evidence
+category; it never contains matched source lines, source-file contents, an
+absolute project path, or unredacted secrets. The anonymous Wall request
+contains only score, launch label, files-scanned count, severity counts,
+detected stack tags, scanner version, and timestamp. It never contains file
+paths, filenames, project names, repo URLs, emails, handles, finding titles,
+evidence, or report contents. The first run on a machine prints this contract
+and that run's exact aggregate Wall values to stderr. `--no-telemetry` (alias
+`--no-wall`) turns off both requests and every other network call.
 
 ## License
 

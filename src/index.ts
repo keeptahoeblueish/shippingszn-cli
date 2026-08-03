@@ -16,7 +16,6 @@ import {
   type NormalizedLaunchFinding,
   type ScoreBandId,
 } from "./vendor/launch-readiness/server.js";
-import { CHECKLIST_PUBLIC as CHECKLIST } from "./vendor/checklist-data/public.js";
 
 const UNTRACKED_DOWNGRADE: Record<Severity, Severity> = {
   critical: "lower",
@@ -177,32 +176,12 @@ function color(enabled: boolean) {
 }
 
 const SEVERITY_ORDER: Severity[] = ["critical", "high", "medium", "lower"];
-const SEVERITY_LABEL: Record<Severity, string> = {
-  critical: "CRITICAL",
-  high: "HIGH",
-  medium: "MEDIUM",
-  lower: "LOWER",
-};
-
 function pluralize(count: number, singular: string, plural = `${singular}s`) {
   return count === 1 ? singular : plural;
 }
 
 function findingVerb(count: number) {
   return count === 1 ? "is" : "are";
-}
-
-function severityColor(
-  sev: Severity,
-  c: ReturnType<typeof color>,
-): (s: string) => string {
-  const map: Record<Severity, (s: string) => string> = {
-    critical: c.red,
-    high: c.yellow,
-    medium: c.blue,
-    lower: c.gray,
-  };
-  return map[sev];
 }
 
 // One-per-machine marker so the telemetry disclosure prints exactly once.
@@ -237,8 +216,9 @@ async function markTelemetrySeen(): Promise<void> {
   }
 }
 
-// Print the EXACT anonymous payload this run would send. Goes to stderr so it
-// never corrupts --json stdout.
+// Describe both telemetry payloads before the first send. The aggregate values
+// are exact for this run; the locked handoff categories are fixed by contract.
+// Goes to stderr so it never corrupts --json stdout.
 function printTelemetryDisclosure(info: {
   score: number;
   totals: Record<Severity, number>;
@@ -249,18 +229,22 @@ function printTelemetryDisclosure(info: {
   const { score, totals, filesScanned, scannerVersion, stack } = info;
   const stackList = stack.length ? stack.join(", ") : "(none detected)";
   process.stderr.write(
-    `\nshippingszn sends two anonymous telemetry requests per run by default:\n` +
-      `1. A scan handoff (creates your /fix-kit link): each finding's severity,\n` +
-      `   checklist item, file:line location, and a short evidence snippet from the\n` +
-      `   matched line. Secret values are always redacted before upload.\n` +
-      `2. An aggregate Wall ping. This run's aggregate payload:\n` +
+    `\nshippingszn sends two telemetry requests per run by default:\n` +
+      `1. A locked scan handoff (creates your /fix-kit link): a stable opaque\n` +
+      `   project fingerprint used to match paid rescans, plus each finding's\n` +
+      `   severity, checklist item, file:line location, and short derived or\n` +
+      `   redacted evidence category. It never sends matched source lines or\n` +
+      `   source-file contents.\n` +
+      `2. An anonymous aggregate Wall ping. This run's aggregate payload:\n` +
       `   - score: ${score}\n` +
       `   - severity counts: ${totals.critical} critical, ${totals.high} high, ${totals.medium} medium, ${totals.lower} lower\n` +
       `   - files scanned: ${filesScanned}\n` +
       `   - scanner version: ${scannerVersion}\n` +
       `   - stack tags: ${stackList}\n` +
-      `Neither request includes your repo URL, project name, full source files, or\n` +
-      `unredacted secret values. Disable both with --no-telemetry (the CLI then runs\n` +
+      `Neither request includes your repo URL, project name, absolute project path,\n` +
+      `source-file contents, or unredacted secret values. The fingerprint is\n` +
+      `pseudonymous and does not reveal those values. Disable both with\n` +
+      `--no-telemetry (the CLI runs\n` +
       `fully offline, zero network calls). This notice shows once per machine.\n\n`,
   );
 }
@@ -294,8 +278,8 @@ Usage:
   npx shippingszn@latest [path] [options]
 
 Options:
-  --json                Output a machine-readable JSON summary (includes the
-                        full findings array).
+  --json                Output a machine-readable score, launch band, severity
+                        counts, and locked Fix Kit handoff status.
   --no-telemetry        Run fully offline. No scan handoff, no anonymous Wall
                         ping — zero network calls. (--no-wall is an alias.)
   --proof               Backward-compatible alias. Normal runs already return
@@ -307,17 +291,19 @@ Options:
   -h, --help            Show this help.
   -v, --version         Print version.
 
-This is the FREE inspection and it is the full DIAGNOSIS: it prints every
-finding — severity, the checklist item it maps to, the file and line, and what's
-wrong — plus a 0-100 readiness score. The $49 Launch Fix Kit is the REMEDIATION
-layer: per-finding fix instructions, prompts to paste straight into your AI
-builder, the 58-item launch workbook, unlimited re-scans, and launch monitoring.
-Read-only on disk. By default each run sends two anonymous requests: a scan
-handoff carrying finding-level detail (severity, checklist item, file:line, and
-a short evidence snippet — secret values always redacted) so checkout can carry
-this exact scan into the Fix Kit, and an aggregate Wall ping (score, severity
-counts, file count, scanner version, stack tags). Neither includes your repo
-URL, project name, or full source files. Pass --no-telemetry to disable both.
+The FREE result contains only a 0-100 score, severity counts, and launch band.
+One $49 Launch Fix Kit is bound to one matched project and includes exact
+findings, the full 58-item launch workbook, evidence, AI-builder prompts, and
+unlimited matched re-scans. One global Codex OAuth connection works from any
+Codex project, but unrelated-project access is denied. Checkout does not sign
+you in; OTP sign-in is required. Legacy unbound purchases require support, and
+recurring launch monitoring is separate. Read-only on disk. By default each
+run sends a locked scan handoff with a stable opaque project fingerprint used
+to match paid rescans, finding severity, checklist item, file:line, and short
+derived or redacted evidence, plus an anonymous aggregate Wall ping (score,
+severity counts, file count, scanner version, stack tags). Neither sends your
+repo URL, project name, absolute project path, matched source lines, source-file
+contents, or unredacted secrets. Pass --no-telemetry to disable both.
 Exit code non-zero if any critical findings.
 `,
   );
@@ -380,13 +366,12 @@ async function run(): Promise<number> {
     try {
       const out = await check.run(ctx);
       all.push(...out);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+    } catch {
       all.push({
         checkId: `${check.id}:error`,
         itemId: "ai-audit",
         severity: "lower",
-        message: `Check ${check.id} crashed: ${msg}`,
+        message: `Check ${check.id} could not complete. Re-run the scan after confirming the target is readable. Internal error details are intentionally omitted from the uploaded handoff.`,
       });
     }
   }
@@ -555,15 +540,9 @@ async function run(): Promise<number> {
     }
   }
 
-  // PIVOT 2026-07-16: the free CLI is the full DIAGNOSIS. Every finding — its
-  // severity, the checklist item it maps to, the file:line, and the message —
-  // prints locally and ships in default --json (`publicFindings`). What stays
-  // paid is the REMEDIATION layer: fix instructions, AI-builder prompts, and
-  // verification steps (stripped in `publicFindings`, still uploaded to
-  // /api/scan-results so the Fix Kit can render them post-purchase).
-  const automatedAreas = CHECKLIST.filter(
-    (item) => item.cliCoverage === "automated",
-  ).length;
+  // The free CLI is the launch scoreboard: score, band, and severity counts.
+  // Finding-level diagnosis stays in the locked scan handoff so the paid Fix
+  // Kit can render it after purchase; it is never echoed to stdout.
   // The shared score is severity-banded: critical findings are the no-go band,
   // high findings are fix-first, medium findings are verify-first, and count
   // pressure moves the score inside that band. That keeps the number and
@@ -618,12 +597,8 @@ async function run(): Promise<number> {
       band,
       counts: { ...totals },
       filesScanned: files.length,
-      coverage: {
-        checksCompleted: automatedAreas,
-        checklistAreas: CHECKLIST.length,
-      },
       scannerVersion: PKG_VERSION,
-      findings: publicFindings,
+      detailsLocked: true,
       unlockUrl,
       wall: {
         status: wallStatus,
@@ -647,9 +622,8 @@ async function run(): Promise<number> {
     return totals.critical > 0 ? 1 : 0;
   }
 
-  // Full-diagnosis human output: verdict + score + counts + every finding
-  // (severity, checklist item, file:line, message) + coverage + the remediation
-  // CTA. The fixes themselves stay in the paid Fix Kit.
+  // Scoreboard-only human output. Finding titles, file locations, evidence,
+  // and remediation stay inside the paid Fix Kit.
   const bandColor =
     band === "no_go"
       ? c.red
@@ -723,30 +697,6 @@ async function run(): Promise<number> {
     }
   }
 
-  if (totalFindings > 0) {
-    process.stdout.write(`${c.bold("Findings:")}\n`);
-    for (const sev of SEVERITY_ORDER) {
-      const group = publicFindings.filter((f) => f.severity === sev);
-      if (group.length === 0) continue;
-      const sc = severityColor(sev, c);
-      process.stdout.write(
-        `\n${sc(c.bold(SEVERITY_LABEL[sev]))} ${c.dim(`(${group.length})`)}\n`,
-      );
-      for (const f of group) {
-        const loc = f.file ? (f.line ? `${f.file}:${f.line}` : f.file) : "";
-        process.stdout.write(`  ${sc("•")} ${c.bold(f.itemTitle)}\n`);
-        if (loc) process.stdout.write(`    ${c.cyan(loc)}\n`);
-        process.stdout.write(`    ${c.dim(f.message)}\n`);
-      }
-    }
-    process.stdout.write("\n");
-  }
-
-  process.stdout.write(`${c.bold("Coverage:")}\n`);
-  process.stdout.write(
-    c.dim(`  ${automatedAreas} launch-readiness checks completed\n\n`),
-  );
-
   if (totalFindings === 0) {
     process.stdout.write(
       c.yellow("A clean scan is not a verified-safe app.\n"),
@@ -760,20 +710,27 @@ async function run(): Promise<number> {
 
   if (totalFindings > 0) {
     process.stdout.write(
-      `${c.bold("The findings above are free.")} ${c.dim("The $49 Launch Fix Kit is the fix layer:")}\n`,
+      `${c.bold("Your finding details are locked.")} ${c.dim("The $49 Launch Fix Kit includes:")}\n`,
     );
     process.stdout.write(
       c.dim(
-        "  - Per-finding fix instructions\n" +
-          "  - Prompts to paste straight into your AI builder\n" +
-          "  - The 58-item launch workbook\n" +
-          "  - Unlimited re-scans + launch monitoring\n",
+        "  - Exact finding titles, file locations, and evidence\n" +
+          "  - Per-finding fix instructions and AI-builder prompts\n" +
+          "  - The full 58-item launch workbook\n" +
+          "  - Unlimited matched re-scans for this one project\n" +
+          "  - One global Codex OAuth connection; unrelated projects stay locked\n" +
+          "  - Checkout does not sign you in; OTP sign-in is required\n" +
+          "  - Recurring launch monitoring is separate\n",
       ),
     );
-    process.stdout.write(`${c.bold("Get the fixes:")} ${c.cyan(unlockUrl)}\n`);
+    process.stdout.write(
+      `${c.bold("Unlock this scan:")} ${c.cyan(unlockUrl)}\n`,
+    );
     if (scanSpecificUnlockUrl) {
       process.stdout.write(
-        c.dim("  This exact scan carries into the Kit after checkout.\n\n"),
+        c.dim(
+          "  This exact scan carries into the project-bound Kit after checkout. Checkout does not sign you in; complete OTP sign-in to open it.\n\n",
+        ),
       );
     } else {
       process.stdout.write("\n");
@@ -787,8 +744,10 @@ async function run(): Promise<number> {
     );
     process.stdout.write(
       c.dim(
-        "  The 58-item launch workbook, owner-verification steps, re-scans, and\n" +
-          "  monitoring for the gaps a static scan can't see.\n\n",
+        "  The full 58-item launch workbook, owner-verification steps, and unlimited\n" +
+          "  matched re-scans for this one project. One global Codex OAuth connection\n" +
+          "  works from any Codex project, but unrelated projects stay locked. Checkout\n" +
+          "  does not sign you in; OTP is required. Recurring monitoring is separate.\n\n",
       ),
     );
   }

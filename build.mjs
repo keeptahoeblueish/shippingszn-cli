@@ -1,9 +1,9 @@
-// CLI build: bundle src/index.ts (and everything it imports, including the
-// vendored checklist-data / launch-readiness modules under src/vendor) into a
-// single dist/index.js suitable for publishing to npm. A plain `tsc` transpile
-// would leave the internal module graph as separate files; bundling keeps the
-// published package self-contained so `npx shippingszn` runs with no runtime
-// dependency resolution beyond Node built-ins.
+// CLI build: bundle src/index.ts (and its workspace dependencies, like
+// @workspace/launch-readiness) into a single dist/index.js suitable for
+// publishing to npm. The previous `tsc -p tsconfig.json` step only
+// transpiled — it left workspace imports as-is, so end users running
+// `npx shippingszn` got `Cannot find package '@workspace/...'` because
+// the workspace symlinks don't exist outside this monorepo.
 
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
@@ -23,9 +23,8 @@ await esbuild({
   format: "esm",
   bundle: true,
   target: "node20",
-  // Externalize only Node built-ins. Everything else (including the vendored
-  // modules under src/vendor) gets bundled inline so the published package is
-  // self-contained.
+  // Externalize only Node built-ins. Workspace deps (@workspace/*)
+  // get bundled inline so the published package is self-contained.
   external: ["node:*"],
   // No banner: src/index.ts already starts with `#!/usr/bin/env node`
   // and esbuild preserves it when bundling. Adding our own banner

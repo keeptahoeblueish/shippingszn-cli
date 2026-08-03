@@ -119,6 +119,8 @@ const PATTERN_DEFINITION_FILES: ReadonlySet<string> = new Set([
   "tools/cli/src/checks/quality.ts",
   "tools/cli/src/checks/language.ts",
   "tools/cli/src/checks/otp-auth.ts",
+  "tools/cli/src/checks/api-spend-cap.ts",
+  "tools/cli/src/checks/session-cookie.ts",
   "tools/cli/README.md",
   // Test fixture for the redaction module: contains intentional fake
   // secret patterns whose whole purpose is to verify the redactor scrubs

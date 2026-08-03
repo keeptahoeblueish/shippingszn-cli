@@ -14,7 +14,6 @@ import { makeFinding } from "./make-finding.js";
 interface SignalHit {
   file: string;
   line: number;
-  text: string;
 }
 
 interface OtpAuthSignals {
@@ -106,7 +105,6 @@ function firstHit(
   return {
     file: relPosix(file.relPath),
     line: findLine(content, match.index),
-    text: match[0],
   };
 }
 
@@ -116,7 +114,7 @@ function pick(existing: SignalHit | undefined, next: SignalHit | undefined) {
 
 function evidence(hit: SignalHit | undefined, fallback: string) {
   if (!hit) return fallback;
-  return `${hit.file}:${hit.line} matched "${hit.text}".`;
+  return `${hit.file}:${hit.line}. ${fallback} Matched source text is intentionally omitted.`;
 }
 
 function finding(input: {
@@ -180,7 +178,10 @@ async function collectOtpAuthSignals(
       signals.resendBehavior,
       firstHit(file, content, RESEND_BEHAVIOR),
     );
-    signals.rateLimit = pick(signals.rateLimit, firstHit(file, content, RATE_LIMIT));
+    signals.rateLimit = pick(
+      signals.rateLimit,
+      firstHit(file, content, RATE_LIMIT),
+    );
     signals.antiEnumeration = pick(
       signals.antiEnumeration,
       firstHit(file, content, ANTI_ENUMERATION),
