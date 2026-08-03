@@ -5,6 +5,7 @@ import { projectFingerprint } from "./project-fingerprint.js";
 
 const PROOF_TIMEOUT_MS = 5000;
 const MAX_FINDINGS = 100;
+const SCAN_CHECKOUT_TOKEN_PATTERN = /^sszct1_[A-Za-z0-9_-]{43}$/;
 
 export type ProofUploadStatus = "uploaded" | "skipped" | "failed";
 
@@ -142,6 +143,46 @@ export function buildProofPayload(
   };
 }
 
+function validatedPrivateUnlockUrl(
+  value: unknown,
+  baseUrl: string,
+  scanResultId: string,
+  scanCheckoutToken: unknown,
+): string | null {
+  if (
+    typeof value !== "string" ||
+    typeof scanCheckoutToken !== "string" ||
+    !SCAN_CHECKOUT_TOKEN_PATTERN.test(scanCheckoutToken)
+  ) {
+    return null;
+  }
+
+  try {
+    const base = new URL(baseUrl);
+    const url = new URL(value, base.origin);
+    const queryKeys = [...url.searchParams.keys()];
+    const fragment = new URLSearchParams(url.hash.slice(1));
+    const fragmentKeys = [...fragment.keys()];
+    if (
+      url.origin !== base.origin ||
+      url.username ||
+      url.password ||
+      url.pathname !== "/fix-kit" ||
+      queryKeys.length !== 1 ||
+      queryKeys[0] !== "scanResultId" ||
+      url.searchParams.get("scanResultId") !== scanResultId ||
+      fragmentKeys.length !== 1 ||
+      fragmentKeys[0] !== "scanCheckoutToken" ||
+      fragment.get("scanCheckoutToken") !== scanCheckoutToken
+    ) {
+      return null;
+    }
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
 function buildWallPayload(
   report: ProofReportInput,
   scanResultId: string,
@@ -222,12 +263,29 @@ export async function uploadProof(
       };
     }
 
-    const body = (await res.json()) as { id?: unknown };
+    const body = (await res.json()) as {
+      id?: unknown;
+      unlockUrl?: unknown;
+      scanCheckoutToken?: unknown;
+    };
     const id = typeof body.id === "string" ? body.id : "";
     if (!id) {
       return {
         status: "failed",
         error: "Proof upload succeeded but the response did not include an id.",
+      };
+    }
+    const privateUnlockUrl = validatedPrivateUnlockUrl(
+      body.unlockUrl,
+      baseUrl,
+      id,
+      body.scanCheckoutToken,
+    );
+    if (!privateUnlockUrl) {
+      return {
+        status: "failed",
+        error:
+          "Proof upload succeeded but the response did not include a valid private Fix Kit link.",
       };
     }
 
@@ -242,7 +300,7 @@ export async function uploadProof(
       status: "uploaded",
       id,
       proofUrl: `${baseUrl}/proof/${encodeURIComponent(id)}`,
-      reportUrl: `${baseUrl}/fix-kit?${new URLSearchParams({ scanResultId: id }).toString()}`,
+      reportUrl: privateUnlockUrl,
       badgeMarkdown: buildBadgeMarkdown(
         baseUrl,
         id,

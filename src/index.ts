@@ -15,7 +15,7 @@ import {
   type LaunchReadinessSource,
   type NormalizedLaunchFinding,
   type ScoreBandId,
-} from "./vendor/launch-readiness/server.js";
+} from "./vendor/launch-readiness/index.js";
 
 const UNTRACKED_DOWNGRADE: Record<Severity, Severity> = {
   critical: "lower",
@@ -296,10 +296,14 @@ One $49 Launch Fix Kit is bound to one matched project and includes exact
 findings, the full 58-item launch workbook, evidence, AI-builder prompts, and
 unlimited matched re-scans. One global Codex OAuth connection works from any
 Codex project, but unrelated-project access is denied. Checkout does not sign
-you in; OTP sign-in is required. Legacy unbound purchases require support, and
-recurring launch monitoring is separate. Read-only on disk. By default each
-run sends a locked scan handoff with a stable opaque project fingerprint used
-to match paid rescans, finding severity, checklist item, file:line, and short
+you in; OTP sign-in is required. Compatible legacy purchases can be linked once
+from Account when their original repository scan and paid report context are
+available: select the exact owned purchase and permanently confirm its one
+project. If Account says that context is missing or incompatible, open
+${DEFAULT_BASE_URL}/support#codex-mcp for a manual access review. Recurring launch
+monitoring is separate. Read-only on disk. By default each run sends a locked
+scan handoff with a stable opaque project fingerprint used to match paid
+rescans, finding severity, checklist item, file:line, and short
 derived or redacted evidence, plus an anonymous aggregate Wall ping (score,
 severity counts, file count, scanner version, stack tags). Neither sends your
 repo URL, project name, absolute project path, matched source lines, source-file

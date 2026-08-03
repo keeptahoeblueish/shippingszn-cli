@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "packageVersion": "0.11.0",
-  "sourceCommit": "8109d8acdc59a0fced3d08c1674436c75de4a4af",
+  "sourceCommit": "a274209c967c61e74fbaa806f610662f2d0253f1",
   "sourceTreeState": "clean",
   "files": [
     {
@@ -26,7 +26,7 @@
     },
     {
       "path": "README.md",
-      "sha256": "92cea220fa79dd1711f98ed8a8544812be409ab2f94949c6178acaad1fa5a213"
+      "sha256": "d67ae4ec84346048fb89210d8218f347e9126566e104e4caa0f242af0db68cb9"
     },
     {
       "path": "build.mjs",
@@ -142,7 +142,7 @@
     },
     {
       "path": "src/index.ts",
-      "sha256": "8e3175d823bcdf8b06b8556699ea4fd0d52a9ae93ee1f06bd0c806a89219a0da"
+      "sha256": "506e25b7b1a4c9dd1733876b69cca9e140adce50b870df528482f31876ffcecd"
     },
     {
       "path": "src/items.ts",
@@ -154,7 +154,7 @@
     },
     {
       "path": "src/proof.ts",
-      "sha256": "72c6977e74e080e72f7e17073271c897b5d0713d36f4ca161e294ba1c3255558"
+      "sha256": "5233452d53ab6840b41ed9bc42ea6fe52723b1ff4a42def2a999fd5f525696a3"
     },
     {
       "path": "src/publish.ts",
@@ -174,15 +174,7 @@
     },
     {
       "path": "src/vendor/launch-readiness/index.ts",
-      "sha256": "d8bd8b5c59846362119dbc26252a1a6a251501a31a66f6f5a7f94787bde87ef6"
-    },
-    {
-      "path": "src/vendor/launch-readiness/server-prompts.ts",
-      "sha256": "da20e548e206ceb0962d83a84c6a18844d95de0131f60fb93689a840627ce051"
-    },
-    {
-      "path": "src/vendor/launch-readiness/server.ts",
-      "sha256": "26fb3a885ef1296981eff8f87b5a21181484690e96a4712a592cc2b32104ee4a"
+      "sha256": "e019827ef7149f46e0301c00d0f276138ede002a43edc78c29c94116bb079aa2"
     },
     {
       "path": "test/checks.test.ts",
@@ -190,7 +182,7 @@
     },
     {
       "path": "test/cli.test.ts",
-      "sha256": "b58f22ff6d7719ea1837fbebf15f2a1ab4f174ef49dbbd9d2aed9aefbeea866c"
+      "sha256": "de2c56235ec8ec1578a1149041edc150a20b64cb1b653e09ef94a2a33cd2bae3"
     },
     {
       "path": "test/fixtures/cli-exit/clean/.gitignore",

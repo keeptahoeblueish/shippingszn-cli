@@ -60,9 +60,13 @@ full 58-item launch workbook, and unlimited matched re-scans for that project.
 One global Codex OAuth connection works from any local Codex project, but paid
 data for an unrelated project is denied. Checkout purchases the Fix Kit but
 does not sign you in; OTP sign-in is required before paid report or OAuth
-access. Legacy purchases that predate secure project binding must be opened
-from the original browser account and linked through support. Recurring launch
-monitoring is a separate product and is not included in the Fix Kit.
+access. Compatible legacy purchases that predate secure project binding can be
+linked once from Account when their original repository scan and paid report
+context are still available: run a fresh score-only scan in the exact project,
+select the exact owned purchase, and permanently confirm that one project. If
+Account says that context is missing or incompatible, use
+https://shippingszn.com/support#codex-mcp for a manual access review. Recurring
+launch monitoring is a separate product and is not included in the Fix Kit.
 
 ## Telemetry
 

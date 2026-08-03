@@ -11,6 +11,7 @@ const ENTRY = path.join(__dirname, "..", "src", "index.ts");
 const TS_ENTRY_ARGS = ["--import", "tsx", ENTRY];
 const FIXTURES = path.join(__dirname, "fixtures", "cli-exit");
 const TEST_TEMP_ROOTS = new Set<string>();
+const SCAN_CHECKOUT_TOKEN = `sszct1_${"a".repeat(43)}`;
 
 after(() => {
   for (const root of TEST_TEMP_ROOTS) {
@@ -164,6 +165,18 @@ test("CLI rejects malformed options instead of scanning an unintended target", (
   }
 });
 
+test("CLI help qualifies legacy Fix Kit binding and gives a support fallback", () => {
+  const res = runRawCli(["--help"]);
+  assert.equal(res.status, 0, res.stderr);
+  assert.match(res.stdout, /compatible legacy purchases can be linked once/i);
+  assert.match(res.stdout, /original repository scan and paid report context/i);
+  assert.match(res.stdout, /exact owned purchase/i);
+  assert.match(res.stdout, /permanently confirm its one\s+project/i);
+  assert.match(res.stdout, /missing or incompatible/i);
+  assert.match(res.stdout, /support#codex-mcp/i);
+  assert.match(res.stdout, /manual access review/i);
+});
+
 test("CLI rejects a nonexistent scan target instead of reporting a partial score", () => {
   const missing = path.join(os.tmpdir(), `shippingszn-missing-${Date.now()}`);
   const res = runRawCli([missing, "--json", "--no-telemetry"]);
@@ -222,7 +235,9 @@ async function startProofServer() {
           res.setHeader("content-type", "application/json");
           res.end(JSON.stringify({
             id: "00000000-0000-4000-8000-000000000123",
-            ...last
+            ...last,
+            scanCheckoutToken: "${SCAN_CHECKOUT_TOKEN}",
+            unlockUrl: "http://" + req.headers.host + "/fix-kit?scanResultId=00000000-0000-4000-8000-000000000123#scanCheckoutToken=${SCAN_CHECKOUT_TOKEN}"
           }));
         });
         return;
@@ -414,7 +429,7 @@ test("CLI creates a scan-specific Fix Kit handoff by default", async () => {
     );
     assert.equal(
       report.unlockUrl,
-      `${server.baseUrl}/fix-kit?scanResultId=00000000-0000-4000-8000-000000000123`,
+      `${server.baseUrl}/fix-kit?scanResultId=00000000-0000-4000-8000-000000000123#scanCheckoutToken=${SCAN_CHECKOUT_TOKEN}`,
     );
     const state = (await server.json("/_count")) as { count: number };
     assert.equal(state.count, 1);
@@ -567,11 +582,11 @@ test("CLI scan handoff posts canonical payload and returns Fix Kit URLs", async 
     );
     assert.equal(
       report.unlockUrl,
-      `${server.baseUrl}/fix-kit?scanResultId=00000000-0000-4000-8000-000000000123`,
+      `${server.baseUrl}/fix-kit?scanResultId=00000000-0000-4000-8000-000000000123#scanCheckoutToken=${SCAN_CHECKOUT_TOKEN}`,
     );
     assert.equal(
       report.scanHandoff.unlockUrl,
-      `${server.baseUrl}/fix-kit?scanResultId=00000000-0000-4000-8000-000000000123`,
+      `${server.baseUrl}/fix-kit?scanResultId=00000000-0000-4000-8000-000000000123#scanCheckoutToken=${SCAN_CHECKOUT_TOKEN}`,
     );
     assert.equal(report.wall.url, `${server.baseUrl}/wall`);
     assert.ok(
@@ -668,6 +683,7 @@ test("CLI scan handoff posts canonical payload and returns Fix Kit URLs", async 
     assert.equal(wallPayload.findingsMedium, report.counts.medium);
     assert.equal(wallPayload.findingsLower, report.counts.lower);
     assert.equal(typeof wallPayload.scannerVersion, "string");
+    assert.doesNotMatch(JSON.stringify(wallPayload), /scanCheckoutToken|sszct1_/);
   } finally {
     server.close();
   }
