@@ -1,1 +1,0 @@
-export const KEY = "sk-proj-ABCDEFGHIJKLMNOPQRSTUVWX1234567890";

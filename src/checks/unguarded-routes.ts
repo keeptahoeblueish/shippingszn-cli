@@ -29,8 +29,7 @@ const RISKY_ROUTE_PATTERNS: ReadonlyArray<{
     shape: "admin/internal route",
   },
   {
-    regex:
-      /\b(app|router)\.(delete)\s*\(\s*["'`]([^"'`]+)["'`]/g,
+    regex: /\b(app|router)\.(delete)\s*\(\s*["'`]([^"'`]+)["'`]/g,
     shape: "DELETE route",
   },
   {
@@ -45,7 +44,7 @@ const RISKY_ROUTE_PATTERNS: ReadonlyArray<{
 // auth middleware uses an unusual name we miss, we'll skip over your
 // route silently — better than mislabeling.
 const AUTH_GUARD_REGEX =
-  /\b(requireAuth|requireUser|requireAdmin|requireSession|isAuthenticated|isAdmin|withAuth|protect\s*\(|authenticate\s*\(|authMiddleware|verifySession|getServerSession|currentUser\s*\(|auth\.guard|sessionGuard|verifyToken)\b/;
+  /\b(requireAuth|requireUser|requireAdmin|requireAdminSession|requireSession|requireMcpSession|isAuthenticated|isAdmin|withAuth|protect\s*\(|authenticate\s*\(|authMiddleware|verifySession|getServerSession|currentUser\s*\(|auth\.guard|sessionGuard|verifyToken)\b/;
 
 const RUNTIME_EXTS: ReadonlySet<string> = new Set([
   ".ts",

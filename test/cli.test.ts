@@ -1,33 +1,63 @@
 import { strict as assert } from "node:assert";
-import { test } from "node:test";
+import { after, test } from "node:test";
 import { spawn, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { CHECKLIST_PUBLIC as CHECKLIST } from "../src/vendor/checklist-data/public.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const CLI_ROOT = path.resolve(__dirname, "..");
-const TSX_BIN = path.join(CLI_ROOT, "node_modules", ".bin", "tsx");
-const ENTRY = path.join(CLI_ROOT, "src", "index.ts");
+const ENTRY = path.join(__dirname, "..", "src", "index.ts");
+const TS_ENTRY_ARGS = ["--import", "tsx", ENTRY];
 const FIXTURES = path.join(__dirname, "fixtures", "cli-exit");
+const TEST_TEMP_ROOTS = new Set<string>();
+const SCAN_CHECKOUT_TOKEN = `sszct1_${"a".repeat(43)}`;
+
+after(() => {
+  for (const root of TEST_TEMP_ROOTS) {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+function makeTrackedTempRoot(prefix: string): string {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  TEST_TEMP_ROOTS.add(root);
+  return root;
+}
+
+function genericProviderCredential(): string {
+  return ["s", "k", "-", "fixture", "_", "E".repeat(32)].join("");
+}
+
+const RUNTIME_CRITICAL_FIXTURE = makeTrackedTempRoot(
+  "shippingszn-cli-critical-",
+);
+fs.writeFileSync(
+  path.join(RUNTIME_CRITICAL_FIXTURE, "leak.ts"),
+  `export const OPENAI_KEY = "${genericProviderCredential()}";\n`,
+);
+
+function fixturePath(fixture: string): string {
+  return fixture === "critical"
+    ? RUNTIME_CRITICAL_FIXTURE
+    : path.join(FIXTURES, fixture);
+}
 
 // A config home that already carries the first-run telemetry marker, so the
 // once-per-machine disclosure stays silent for the default CLI runs below.
 // Tests that exercise the disclosure pass their own fresh SHIPPINGSZN_CONFIG_HOME.
-const SEEN_CONFIG_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "ssz-seen-"));
+const SEEN_CONFIG_HOME = makeTrackedTempRoot("ssz-seen-");
 fs.mkdirSync(path.join(SEEN_CONFIG_HOME, "shippingszn"), { recursive: true });
 fs.writeFileSync(path.join(SEEN_CONFIG_HOME, "shippingszn", "seen"), "seen\n");
 
-function runCli(
-  fixture: string,
+function runCliTarget(
+  target: string,
   extraArgs: string[] = [],
   env: Record<string, string> = {},
 ) {
   const res = spawnSync(
-    TSX_BIN,
-    [ENTRY, path.join(FIXTURES, fixture), "--json", "--no-color", ...extraArgs],
+    process.execPath,
+    [...TS_ENTRY_ARGS, target, "--json", "--no-color", ...extraArgs],
     {
       encoding: "utf8",
       env: {
@@ -42,14 +72,22 @@ function runCli(
   return res;
 }
 
+function runCli(
+  fixture: string,
+  extraArgs: string[] = [],
+  env: Record<string, string> = {},
+) {
+  return runCliTarget(fixturePath(fixture), extraArgs, env);
+}
+
 function runHumanCli(
   fixture: string,
   extraArgs: string[] = [],
   env: Record<string, string> = {},
 ) {
   const res = spawnSync(
-    TSX_BIN,
-    [ENTRY, path.join(FIXTURES, fixture), "--no-color", ...extraArgs],
+    process.execPath,
+    [...TS_ENTRY_ARGS, fixturePath(fixture), "--no-color", ...extraArgs],
     {
       encoding: "utf8",
       env: {
@@ -65,7 +103,7 @@ function runHumanCli(
 }
 
 function runRawCli(args: string[]) {
-  return spawnSync(TSX_BIN, [ENTRY, ...args], {
+  return spawnSync(process.execPath, [...TS_ENTRY_ARGS, ...args], {
     encoding: "utf8",
     env: {
       ...process.env,
@@ -85,21 +123,8 @@ interface ScoreOnlyReport {
     lower: number;
   };
   filesScanned: number;
-  coverage: {
-    checksCompleted: number;
-    checklistAreas: number;
-  };
   scannerVersion: string;
-  findings: Array<{
-    checkId: string;
-    itemId: string;
-    severity: "critical" | "high" | "medium" | "lower";
-    itemTitle: string;
-    message: string;
-    file?: string;
-    line?: number;
-    permalink: string;
-  }>;
+  detailsLocked: true;
   unlockUrl: string;
   wall: {
     status: "published" | "skipped" | "failed" | "disabled";
@@ -140,6 +165,18 @@ test("CLI rejects malformed options instead of scanning an unintended target", (
   }
 });
 
+test("CLI help qualifies legacy Fix Kit binding and gives a support fallback", () => {
+  const res = runRawCli(["--help"]);
+  assert.equal(res.status, 0, res.stderr);
+  assert.match(res.stdout, /compatible legacy purchases can be linked once/i);
+  assert.match(res.stdout, /original repository scan and paid report context/i);
+  assert.match(res.stdout, /exact owned purchase/i);
+  assert.match(res.stdout, /permanently confirm its one\s+project/i);
+  assert.match(res.stdout, /missing or incompatible/i);
+  assert.match(res.stdout, /support#codex-mcp/i);
+  assert.match(res.stdout, /manual access review/i);
+});
+
 test("CLI rejects a nonexistent scan target instead of reporting a partial score", () => {
   const missing = path.join(os.tmpdir(), `shippingszn-missing-${Date.now()}`);
   const res = runRawCli([missing, "--json", "--no-telemetry"]);
@@ -157,11 +194,6 @@ test("CLI canonicalizes trailing slashes in generated product links", () => {
   assert.equal(res.status, 0, res.stderr);
   const report = parseReport(res);
   assert.equal(report.unlockUrl, "https://example.test/fix-kit");
-  assert.ok(
-    report.findings.every((finding) =>
-      finding.permalink.startsWith("https://example.test/i/"),
-    ),
-  );
 });
 
 async function startProofServer() {
@@ -203,7 +235,9 @@ async function startProofServer() {
           res.setHeader("content-type", "application/json");
           res.end(JSON.stringify({
             id: "00000000-0000-4000-8000-000000000123",
-            ...last
+            ...last,
+            scanCheckoutToken: "${SCAN_CHECKOUT_TOKEN}",
+            unlockUrl: "http://" + req.headers.host + "/fix-kit?scanResultId=00000000-0000-4000-8000-000000000123#scanCheckoutToken=${SCAN_CHECKOUT_TOKEN}"
           }));
         });
         return;
@@ -276,25 +310,14 @@ test("CLI exits non-zero when a critical finding is present", () => {
   assert.equal(report.scanHandoff.status, "failed");
   assert.equal(typeof report.score, "number");
   assert.ok(report.score >= 0 && report.score <= 100);
-  assert.equal(report.coverage.checklistAreas, CHECKLIST.length);
-  assert.ok(report.coverage.checksCompleted >= 1);
+  assert.equal("coverage" in report, false);
   assert.equal(typeof report.scannerVersion, "string");
   assert.equal(typeof report.filesScanned, "number");
-  // Free JSON now ships the full diagnosis: every finding with file:line + message.
-  assert.ok(Array.isArray(report.findings));
-  assert.ok(
-    report.findings.length > 0,
-    "expected findings array to be present in default JSON output",
-  );
-  const critical = report.findings.find((f) => f.severity === "critical");
-  assert.ok(critical, "expected a critical finding in the findings array");
-  assert.equal(typeof critical.itemTitle, "string");
-  assert.equal(typeof critical.message, "string");
-  assert.equal(critical.file, "leak.ts");
+  assert.equal(report.detailsLocked, true);
   assert.equal(
-    (report as unknown as { detailsLocked?: unknown }).detailsLocked,
+    (report as unknown as { findings?: unknown }).findings,
     undefined,
-    "detailsLocked gating should be dropped from the diagnosis JSON",
+    "free JSON must not expose finding-level details",
   );
   assert.ok(
     (report as unknown as { launchReadiness?: unknown }).launchReadiness ===
@@ -309,7 +332,7 @@ test("CLI exits 0 when no critical findings are present", () => {
   assert.equal(report.counts.critical, 0);
   assert.equal(report.counts.high, 0);
   assert.equal(report.band, "launchable");
-  assert.ok(Array.isArray(report.findings));
+  assert.equal(report.detailsLocked, true);
   assert.equal(report.unlockUrl, "http://127.0.0.1:9/fix-kit");
   assert.equal(report.scanHandoff.status, "failed");
   assert.ok(
@@ -329,11 +352,10 @@ test("CLI exits 0 when only non-critical findings are present", () => {
     nonCritical > 0,
     `expected at least one non-critical finding, got counts ${JSON.stringify(report.counts)}`,
   );
-  // Findings are free — the array is present and carries no critical severity.
-  assert.ok(report.findings.length > 0);
+  assert.equal(report.detailsLocked, true);
   assert.equal(
-    report.findings.filter((f) => f.severity === "critical").length,
-    0,
+    (report as unknown as { findings?: unknown }).findings,
+    undefined,
   );
   assert.equal(report.unlockUrl, "http://127.0.0.1:9/fix-kit");
   assert.equal(report.scanHandoff.status, "failed");
@@ -344,7 +366,7 @@ test("CLI exits 0 when only non-critical findings are present", () => {
   );
 });
 
-test("human CLI output prints every finding and the remediation CTA", async () => {
+test("human CLI output keeps finding details locked and shows the Fix Kit CTA", async () => {
   const server = await startProofServer();
   try {
     const res = runHumanCli("non-critical", ["--base-url", server.baseUrl]);
@@ -354,35 +376,44 @@ test("human CLI output prints every finding and the remediation CTA", async () =
     assert.match(res.stdout, /Higher is better\./);
     assert.doesNotMatch(res.stdout, /FIX NOW/);
     assert.match(res.stdout, /Findings detected:/);
-    // The full diagnosis is now printed: a grouped findings block with the
-    // per-severity headers and the actual checklist-item titles + messages.
-    assert.match(res.stdout, /\nFindings:/);
-    assert.match(res.stdout, /HIGH \(1\)/);
-    assert.match(res.stdout, /MEDIUM \(2\)/);
-    assert.match(res.stdout, /LOWER \(3\)/);
-    assert.match(res.stdout, /Connect to GitHub for backups and history/);
-    assert.match(res.stdout, /No \.gitignore at the project root/);
-    // Reframed CTA: findings are free, the Kit is the fix layer.
-    assert.match(res.stdout, /The findings above are free\./);
-    assert.match(res.stdout, /Per-finding fix instructions/);
-    assert.match(res.stdout, /58-item launch workbook/);
-    assert.match(res.stdout, /Get the fixes:/);
+    assert.doesNotMatch(res.stdout, /\nFindings:/);
+    assert.doesNotMatch(
+      res.stdout,
+      /Connect to GitHub for backups and history/,
+    );
+    assert.doesNotMatch(res.stdout, /No \.gitignore at the project root/);
+    assert.match(res.stdout, /Your finding details are locked\./);
+    assert.match(
+      res.stdout,
+      /Exact finding titles, file locations, and evidence/,
+    );
+    assert.match(
+      res.stdout,
+      /Per-finding fix instructions and AI-builder prompts/,
+    );
+    assert.match(res.stdout, /full 58-item launch workbook/);
+    assert.match(res.stdout, /Unlimited matched re-scans for this one project/);
+    assert.match(res.stdout, /One global Codex OAuth connection/);
+    assert.match(
+      res.stdout,
+      /Checkout does not sign you in; OTP sign-in is required/,
+    );
+    assert.match(res.stdout, /Recurring launch monitoring is separate/);
+    assert.doesNotMatch(res.stdout, /Unlimited re-scans \+ launch monitoring/);
+    assert.match(res.stdout, /Unlock this scan:/);
     assert.match(res.stdout, /\/fix-kit\?scanResultId=/);
-    // Old paywall framing must be gone.
-    assert.doesNotMatch(res.stdout, /Full findings are locked/);
-    assert.doesNotMatch(res.stdout, /Unlock this exact scan/);
   } finally {
     server.close();
   }
 });
 
-test("critical human output prints file:line for located findings", () => {
+test("critical human output does not print file-level findings", () => {
   const res = runHumanCli("critical", ["--no-telemetry"]);
   assert.equal(res.status, 1, `stderr: ${res.stderr}\nstdout: ${res.stdout}`);
   assert.match(res.stdout, /Verdict:\s+FIX NOW/);
-  assert.match(res.stdout, /\nFindings:/);
-  assert.match(res.stdout, /CRITICAL \(\d+\)/);
-  assert.match(res.stdout, /leak\.ts:1/);
+  assert.doesNotMatch(res.stdout, /\nFindings:/);
+  assert.doesNotMatch(res.stdout, /leak\.ts:1/);
+  assert.match(res.stdout, /Your finding details are locked\./);
 });
 
 test("CLI creates a scan-specific Fix Kit handoff by default", async () => {
@@ -398,7 +429,7 @@ test("CLI creates a scan-specific Fix Kit handoff by default", async () => {
     );
     assert.equal(
       report.unlockUrl,
-      `${server.baseUrl}/fix-kit?scanResultId=00000000-0000-4000-8000-000000000123`,
+      `${server.baseUrl}/fix-kit?scanResultId=00000000-0000-4000-8000-000000000123#scanCheckoutToken=${SCAN_CHECKOUT_TOKEN}`,
     );
     const state = (await server.json("/_count")) as { count: number };
     assert.equal(state.count, 1);
@@ -462,8 +493,11 @@ test("--no-telemetry makes zero network calls", async () => {
     ]);
     assert.equal(res.status, 0, `stderr: ${res.stderr}\nstdout: ${res.stdout}`);
     const report = parseReport(res);
-    // Findings are still printed locally; nothing is uploaded.
-    assert.ok(report.findings.length > 0);
+    assert.equal(report.detailsLocked, true);
+    assert.equal(
+      (report as unknown as { findings?: unknown }).findings,
+      undefined,
+    );
     assert.equal(report.scanHandoff.status, "skipped");
     assert.equal(report.wall.status, "skipped");
     assert.equal(report.unlockUrl, `${server.baseUrl}/fix-kit`);
@@ -497,15 +531,21 @@ test("--no-wall is an alias for --no-telemetry", async () => {
 });
 
 test("first-run telemetry disclosure prints once per machine", () => {
-  const configHome = fs.mkdtempSync(path.join(os.tmpdir(), "ssz-firstrun-"));
+  const configHome = makeTrackedTempRoot("ssz-firstrun-");
 
   // First run: telemetry attempted, disclosure printed to stderr.
   const first = runHumanCli("non-critical", [], {
     SHIPPINGSZN_CONFIG_HOME: configHome,
   });
   assert.equal(first.status, 0, `stdout: ${first.stdout}`);
-  assert.match(first.stderr, /anonymous telemetry requests/);
+  assert.match(first.stderr, /two telemetry requests/);
   assert.match(first.stderr, /scan handoff/);
+  assert.match(first.stderr, /stable opaque\s+project fingerprint/);
+  assert.match(first.stderr, /match paid rescans/);
+  assert.match(first.stderr, /never sends matched source lines/);
+  assert.match(first.stderr, /source-file contents/);
+  assert.match(first.stderr, /repo URL/);
+  assert.match(first.stderr, /absolute project path/);
   assert.match(first.stderr, /score:/);
   assert.match(first.stderr, /severity counts:/);
   assert.match(first.stderr, /files scanned:/);
@@ -522,7 +562,7 @@ test("first-run telemetry disclosure prints once per machine", () => {
     SHIPPINGSZN_CONFIG_HOME: configHome,
   });
   assert.equal(second.status, 0, `stdout: ${second.stdout}`);
-  assert.doesNotMatch(second.stderr, /anonymous telemetry requests/);
+  assert.doesNotMatch(second.stderr, /two telemetry requests/);
 });
 
 test("CLI scan handoff posts canonical payload and returns Fix Kit URLs", async () => {
@@ -542,11 +582,11 @@ test("CLI scan handoff posts canonical payload and returns Fix Kit URLs", async 
     );
     assert.equal(
       report.unlockUrl,
-      `${server.baseUrl}/fix-kit?scanResultId=00000000-0000-4000-8000-000000000123`,
+      `${server.baseUrl}/fix-kit?scanResultId=00000000-0000-4000-8000-000000000123#scanCheckoutToken=${SCAN_CHECKOUT_TOKEN}`,
     );
     assert.equal(
       report.scanHandoff.unlockUrl,
-      `${server.baseUrl}/fix-kit?scanResultId=00000000-0000-4000-8000-000000000123`,
+      `${server.baseUrl}/fix-kit?scanResultId=00000000-0000-4000-8000-000000000123#scanCheckoutToken=${SCAN_CHECKOUT_TOKEN}`,
     );
     assert.equal(report.wall.url, `${server.baseUrl}/wall`);
     assert.ok(
@@ -562,6 +602,7 @@ test("CLI scan handoff posts canonical payload and returns Fix Kit URLs", async 
       source: string;
       scanner: string;
       targetName: string;
+      projectFingerprint: string;
       counts: Record<string, number>;
       findings: Array<{
         itemId?: string;
@@ -576,6 +617,7 @@ test("CLI scan handoff posts canonical payload and returns Fix Kit URLs", async 
         aiBuilderPrompt?: string;
         verificationStep?: string;
         location?: string;
+        evidence?: string;
       }>;
       filesScanned: number;
       score: number;
@@ -589,6 +631,8 @@ test("CLI scan handoff posts canonical payload and returns Fix Kit URLs", async 
     assert.equal(payload.source, "cli");
     assert.equal(payload.scanner, "shippingszn");
     assert.equal(payload.targetName, "Anonymous CLI scan");
+    assert.match(payload.projectFingerprint, /^sszpf1_[a-f0-9]{64}$/);
+    assert.doesNotMatch(JSON.stringify(payload), new RegExp(FIXTURES));
     assert.equal(payload.score, report.score);
     assert.equal(typeof payload.label, "string");
     assert.deepEqual(payload.counts, report.counts);
@@ -639,6 +683,58 @@ test("CLI scan handoff posts canonical payload and returns Fix Kit URLs", async 
     assert.equal(wallPayload.findingsMedium, report.counts.medium);
     assert.equal(wallPayload.findingsLower, report.counts.lower);
     assert.equal(typeof wallPayload.scannerVersion, "string");
+    assert.doesNotMatch(JSON.stringify(wallPayload), /scanCheckoutToken|sszct1_/);
+  } finally {
+    server.close();
+  }
+});
+
+test("CLI scan handoff omits matched source lines and local project identity", async (t) => {
+  const scanRoot = fs.mkdtempSync(path.join(os.tmpdir(), "ssz-private-line-"));
+  t.after(() => fs.rmSync(scanRoot, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(scanRoot, "src"), { recursive: true });
+  fs.writeFileSync(
+    path.join(scanRoot, "src", "ai.ts"),
+    'const privateContext = "DO_NOT_UPLOAD_MATCHED_SOURCE_LINE"; export const config = { model: "gpt-4-turbo" };\n',
+  );
+
+  const server = await startProofServer();
+  try {
+    const res = runCliTarget(scanRoot, ["--base-url", server.baseUrl]);
+    assert.equal(res.status, 0, `stderr: ${res.stderr}\nstdout: ${res.stdout}`);
+
+    const payload = (await server.json("/_last")) as {
+      projectFingerprint: string;
+      findings: Array<{
+        itemId?: string;
+        evidence?: string;
+        location?: string;
+      }>;
+    };
+    const serialized = JSON.stringify(payload);
+    assert.match(payload.projectFingerprint, /^sszpf1_[a-f0-9]{64}$/);
+    assert.equal(serialized.includes(scanRoot), false);
+    assert.equal(serialized.includes(path.basename(scanRoot)), false);
+    assert.equal(
+      serialized.includes("DO_NOT_UPLOAD_MATCHED_SOURCE_LINE"),
+      false,
+    );
+    assert.equal(serialized.includes("const privateContext"), false);
+    assert.equal(serialized.includes("gpt-4-turbo"), false);
+
+    const modelFinding = payload.findings.find(
+      (finding) => finding.itemId === "model-freshness",
+    );
+    assert.ok(modelFinding, "expected model-freshness in the locked handoff");
+    assert.equal(modelFinding.location, "src/ai.ts:1");
+    assert.match(
+      modelFinding.evidence ?? "",
+      /detection category: model-freshness/i,
+    );
+    assert.match(
+      modelFinding.evidence ?? "",
+      /matched source text is intentionally omitted/i,
+    );
   } finally {
     server.close();
   }

@@ -1,9 +1,11 @@
 import type { Finding } from "./checks.js";
 import type { Severity } from "./items.js";
 import type { NormalizedLaunchFinding } from "./vendor/launch-readiness/index.js";
+import { projectFingerprint } from "./project-fingerprint.js";
 
 const PROOF_TIMEOUT_MS = 5000;
 const MAX_FINDINGS = 100;
+const SCAN_CHECKOUT_TOKEN_PATTERN = /^sszct1_[A-Za-z0-9_-]{43}$/;
 
 export type ProofUploadStatus = "uploaded" | "skipped" | "failed";
 
@@ -75,6 +77,14 @@ function locationFromFinding(finding: ProofFinding): string | undefined {
   return finding.line ? `${finding.file}:${finding.line}` : finding.file;
 }
 
+function safeFindingBody(finding: ProofFinding): string {
+  return `The local scanner detected a ${finding.severity} ${finding.itemTitle || "launch-readiness"} finding. Open the paid Launch Fix Kit for the diagnostic and remediation prompt.`;
+}
+
+function safeFindingEvidence(finding: ProofFinding): string {
+  return `Detection category: ${finding.checkId}. Matched source text is intentionally omitted.`;
+}
+
 export function buildBadgeMarkdown(baseUrl: string, id: string, score: number) {
   const params = new URLSearchParams({
     scanResultId: id,
@@ -100,6 +110,7 @@ export function buildProofPayload(
     source: report.source ?? ("cli" as const),
     scanner: "shippingszn" as const,
     targetName: "Anonymous CLI scan",
+    projectFingerprint: projectFingerprint(report.cwd),
     score: report.launchReadiness.score,
     label: report.launchReadiness.label,
     decision: report.launchReadiness.decision,
@@ -112,8 +123,8 @@ export function buildProofPayload(
       itemId: finding.itemId,
       severity: finding.severity,
       title: clampText(finding.itemTitle || finding.checkId, 160),
-      body: clampText(finding.message, 3000),
-      evidence: clampText(finding.evidence, 3000),
+      body: clampText(safeFindingBody(finding), 3000),
+      evidence: clampText(safeFindingEvidence(finding), 3000),
       confidence: finding.confidence,
       ...(locationFromFinding(finding)
         ? { location: clampText(locationFromFinding(finding)!, 500) }
@@ -122,13 +133,54 @@ export function buildProofPayload(
       itemTitle: clampText(finding.itemTitle, 160),
     })),
     filesScanned: report.filesScanned,
-    topNextStep: clampText(report.launchReadiness.topNextStep, 1000),
+    topNextStep:
+      "Review the highest-severity finding in the paid Launch Fix Kit.",
     reportRecommended: report.launchReadiness.reportRecommended,
     ...(report.launchReadiness.reportUrl
       ? { reportUrl: report.launchReadiness.reportUrl }
       : {}),
     scannerVersion,
   };
+}
+
+function validatedPrivateUnlockUrl(
+  value: unknown,
+  baseUrl: string,
+  scanResultId: string,
+  scanCheckoutToken: unknown,
+): string | null {
+  if (
+    typeof value !== "string" ||
+    typeof scanCheckoutToken !== "string" ||
+    !SCAN_CHECKOUT_TOKEN_PATTERN.test(scanCheckoutToken)
+  ) {
+    return null;
+  }
+
+  try {
+    const base = new URL(baseUrl);
+    const url = new URL(value, base.origin);
+    const queryKeys = [...url.searchParams.keys()];
+    const fragment = new URLSearchParams(url.hash.slice(1));
+    const fragmentKeys = [...fragment.keys()];
+    if (
+      url.origin !== base.origin ||
+      url.username ||
+      url.password ||
+      url.pathname !== "/fix-kit" ||
+      queryKeys.length !== 1 ||
+      queryKeys[0] !== "scanResultId" ||
+      url.searchParams.get("scanResultId") !== scanResultId ||
+      fragmentKeys.length !== 1 ||
+      fragmentKeys[0] !== "scanCheckoutToken" ||
+      fragment.get("scanCheckoutToken") !== scanCheckoutToken
+    ) {
+      return null;
+    }
+    return url.toString();
+  } catch {
+    return null;
+  }
 }
 
 function buildWallPayload(
@@ -211,12 +263,29 @@ export async function uploadProof(
       };
     }
 
-    const body = (await res.json()) as { id?: unknown };
+    const body = (await res.json()) as {
+      id?: unknown;
+      unlockUrl?: unknown;
+      scanCheckoutToken?: unknown;
+    };
     const id = typeof body.id === "string" ? body.id : "";
     if (!id) {
       return {
         status: "failed",
         error: "Proof upload succeeded but the response did not include an id.",
+      };
+    }
+    const privateUnlockUrl = validatedPrivateUnlockUrl(
+      body.unlockUrl,
+      baseUrl,
+      id,
+      body.scanCheckoutToken,
+    );
+    if (!privateUnlockUrl) {
+      return {
+        status: "failed",
+        error:
+          "Proof upload succeeded but the response did not include a valid private Fix Kit link.",
       };
     }
 
@@ -231,7 +300,7 @@ export async function uploadProof(
       status: "uploaded",
       id,
       proofUrl: `${baseUrl}/proof/${encodeURIComponent(id)}`,
-      reportUrl: `${baseUrl}/fix-kit?${new URLSearchParams({ scanResultId: id }).toString()}`,
+      reportUrl: privateUnlockUrl,
       badgeMarkdown: buildBadgeMarkdown(
         baseUrl,
         id,

@@ -38,6 +38,11 @@ const ERROR_MONITORING_DEPS = new Set([
 
 const ERROR_MONITORING_SOURCE_REGEX =
   /\b(Sentry\.init|Sentry\.captureException|Bugsnag\.start|bugsnag\(|Rollbar\.init|Honeybadger\.configure|datadogRum\.init|newrelic\.recordCustomEvent|tracer\.init|@sentry\/|@bugsnag\/|@datadog\/|@highlight-run\/|@honeybadger-io)\b/i;
+const FIRST_PARTY_ERROR_REPORTER_REGEXES = [
+  /\bclient_error\b/,
+  /addEventListener\s*\(\s*["'](?:error|unhandledrejection)["']/,
+  /\/api\/events\b/,
+] as const;
 
 interface PackageJson {
   dependencies?: Record<string, string>;
@@ -76,6 +81,11 @@ export async function checkErrorMonitoring(
     const content = await readFileSafe(file);
     if (!content) continue;
     if (ERROR_MONITORING_SOURCE_REGEX.test(content)) return [];
+    if (
+      FIRST_PARTY_ERROR_REPORTER_REGEXES.every((regex) => regex.test(content))
+    ) {
+      return [];
+    }
   }
 
   return [

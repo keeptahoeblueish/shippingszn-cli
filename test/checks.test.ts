@@ -1,5 +1,5 @@
 import { strict as assert } from "node:assert";
-import { test } from "node:test";
+import { after, test } from "node:test";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -36,25 +36,78 @@ import { listFiles } from "../src/scan.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FIXTURES = path.join(__dirname, "fixtures");
+const TEMP_ROOTS = new Set<string>();
+
+function genericProviderCredential(): string {
+  return ["s", "k", "-", "fixture", "_", "A".repeat(32)].join("");
+}
+
+function stripeLiveCredential(): string {
+  return ["s", "k", "_", "live", "_", "B".repeat(40)].join("");
+}
+
+function mailProviderCredential(): string {
+  return ["S", "G", ".", "C".repeat(22), ".", "D".repeat(43)].join("");
+}
+
+function hexCredential(): string {
+  return ["01234567", "89abcdef", "fedcba98", "76543210", "abcdef01"].join("");
+}
+
+function tempRootPrefix(name: string): string {
+  const base = os.tmpdir().startsWith("/var/") ? "/private/tmp" : os.tmpdir();
+  return path.join(base, name);
+}
+
+after(async () => {
+  await Promise.all(
+    [...TEMP_ROOTS].map((root) =>
+      fs.rm(root, { recursive: true, force: true }),
+    ),
+  );
+});
 
 async function makeCtx(
   fixture: string,
   polarity: "positive" | "negative",
 ): Promise<CheckContext> {
-  const rootDir = path.join(FIXTURES, fixture, polarity);
+  const fixtureRoot = path.join(FIXTURES, fixture, polarity);
+  if (fixture === "config-secret-leaks" && polarity === "positive") {
+    return makeTempCtx({
+      ".env.local": [
+        `VITE_STRIPE_SECRET_KEY=${stripeLiveCredential()}`,
+        "VITE_ANALYTICS_ID=G-FIXTURE123",
+        "DATABASE_URL=postgresql://user:pass@localhost/app",
+        `API_HASH=${hexCredential()}`,
+        "",
+      ].join("\n"),
+    });
+  }
+  if (fixture === "hardcoded-secrets") {
+    return makeTempCtx(
+      polarity === "positive"
+        ? {
+            "leak.ts": `export const OPENAI_KEY = "${genericProviderCredential()}";\n`,
+            "sendgrid.ts": `export const SENDGRID_API_KEY = "${mailProviderCredential()}";\n`,
+          }
+        : {
+            ".env.example": `OPENAI_KEY=${genericProviderCredential()}\n`,
+          },
+      fixtureRoot,
+    );
+  }
+  const rootDir = fixtureRoot;
   const files = await listFiles(rootDir);
   return { rootDir, files };
 }
 
 async function makeTempCtx(
   files: Record<string, string>,
+  copyFrom?: string,
 ): Promise<CheckContext> {
-  const tmpRoot = os.tmpdir().startsWith("/var/")
-    ? "/private/tmp"
-    : os.tmpdir();
-  const rootDir = await fs.mkdtemp(
-    path.join(tmpRoot, "shippingszn-cli-check-"),
-  );
+  const rootDir = await fs.mkdtemp(tempRootPrefix("shippingszn-cli-check-"));
+  TEMP_ROOTS.add(rootDir);
+  if (copyFrom) await fs.cp(copyFrom, rootDir, { recursive: true });
   for (const [rel, content] of Object.entries(files)) {
     const full = path.join(rootDir, rel);
     await fs.mkdir(path.dirname(full), { recursive: true });
@@ -275,6 +328,24 @@ test("[error-monitoring] flags apps with no monitoring SDK or source signal", as
   assert.equal(findings[0]?.itemId, "error-monitoring");
 });
 
+test("[error-monitoring] accepts a complete first-party browser reporter", async () => {
+  const ctx = await makeTempCtx({
+    "package.json": JSON.stringify({ dependencies: { react: "^19.0.0" } }),
+    "src/error-reporter.ts": `
+      function report(error: Error) {
+        return fetch("/api/events", {
+          method: "POST",
+          body: JSON.stringify({ eventName: "client_error", message: error.message }),
+        });
+      }
+      window.addEventListener("error", (event) => report(event.error));
+      window.addEventListener("unhandledrejection", (event) => report(event.reason));
+    `,
+  });
+  const findings = await checkErrorMonitoring(ctx);
+  assert.equal(findings.length, 0);
+});
+
 test("[legal-pages] flags missing terms and privacy surfaces", async () => {
   const ctx = await makeTempCtx({
     "package.json": JSON.stringify({ dependencies: { react: "^19.0.0" } }),
@@ -374,6 +445,21 @@ test("[unguarded-routes] flags admin/write routes with no auth-shaped guard", as
   assert.equal(findings[0]?.itemId, "secure-api");
 });
 
+test("[unguarded-routes] recognizes named admin and MCP session guards", async () => {
+  const ctx = await makeTempCtx({
+    "src/admin.ts": `
+      function requireAdminSession(req) { return getAdminSession(req); }
+      router.get("/admin/session", (req, res) => res.json({ authenticated: Boolean(requireAdminSession(req)) }));
+    `,
+    "src/mcp.ts": `
+      function requireMcpSession(req) { return transports.get(req.headers["mcp-session-id"]); }
+      router.delete("/mcp", (req, res) => requireMcpSession(req).close());
+    `,
+  });
+  const findings = await checkUnguardedRoutes(ctx);
+  assert.equal(findings.length, 0);
+});
+
 const NEW_SECRET_CHECK_IDS = [
   "secret-notion-token",
   "secret-vercel-token",
@@ -452,7 +538,9 @@ for (const c of CASES) {
 // --- model-freshness: exact/dated-aware retirement matching -----------------
 test("[model-freshness] a truly retired exact id still flags critical", async () => {
   const ctx = await makeTempCtx({
-    "src/ai.ts": `export const MODEL = "claude-3-opus";`,
+    "src/ai.ts":
+      `export const MODEL = "claude-3-opus"; ` +
+      `const privateContext = "DO_NOT_UPLOAD_MATCHED_SOURCE_LINE";`,
   });
   const findings = await checkModelFreshness(ctx);
   const hit = findings.find(
@@ -462,6 +550,13 @@ test("[model-freshness] a truly retired exact id still flags critical", async ()
     hit,
     `expected a critical retired finding for claude-3-opus, got: ${JSON.stringify(findings, null, 2)}`,
   );
+  assert.match(hit.evidence ?? "", /model-lifecycle category: retired/i);
+  assert.match(
+    hit.evidence ?? "",
+    /matched source line is intentionally omitted/i,
+  );
+  assert.doesNotMatch(hit.evidence ?? "", /DO_NOT_UPLOAD_MATCHED_SOURCE_LINE/);
+  assert.doesNotMatch(hit.evidence ?? "", /export const MODEL/);
 });
 
 test("[model-freshness] a current successor near a retired prefix stays clean", async () => {
@@ -484,6 +579,27 @@ test("[model-freshness] a current successor near a retired prefix stays clean", 
     0,
     `expected no retired findings for current successors, got: ${JSON.stringify(findings, null, 2)}`,
   );
+});
+
+test("[otp-auth] evidence keeps location but omits matched source text", async () => {
+  const ctx = await makeTempCtx({
+    "src/login.ts": `
+      export const copy = "purchase not found";
+      export const method = "login one-time code";
+    `,
+  });
+  const findings = await checkOtpAuthReadiness(ctx);
+  const leak = findings.find(
+    (finding) => finding.checkId === "otp-enumeration-leak",
+  );
+  assert.ok(
+    leak,
+    `expected enumeration finding, got: ${JSON.stringify(findings, null, 2)}`,
+  );
+  assert.equal(leak.file, "src/login.ts");
+  assert.match(leak.evidence ?? "", /^src\/login\.ts:\d+\./);
+  assert.match(leak.evidence ?? "", /source text is intentionally omitted/i);
+  assert.doesNotMatch(leak.evidence ?? "", /purchase not found/i);
 });
 
 test("[model-freshness] a retired base id used exactly still flags", async () => {
@@ -611,10 +727,9 @@ test("[dependency-integrity] legit near-neighbors (preact, mysql) stay clean", a
 
 // --- secrets: dedupe + PUBLIC_KEY exemption ---------------------------------
 test("[secrets] a provider token in .env yields one finding, not two", async () => {
-  // sk_live_… is ≥40 chars of the base64 class, so before the dedupe it was
-  // flagged BOTH by checkHardcodedSecrets and by the generic config credential
-  // rule. Synthetic (non-real) fixture value.
-  const stripeKey = "sk_live_" + "a".repeat(40);
+  // This shape is flagged by both scanners without the dedupe. It is assembled
+  // only at runtime so no credential-shaped value is committed to source.
+  const stripeKey = stripeLiveCredential();
   const ctx = await makeTempCtx({
     ".env": `STRIPE_KEY="${stripeKey}"\n`,
   });
@@ -634,8 +749,9 @@ test("[secrets] a provider token in .env yields one finding, not two", async () 
 
 test("[secrets] a PUBLIC_KEY artifact is not flagged, a real client secret still is", async () => {
   const publicKey = "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBExamplePub00";
+  const clientValue = ["abc123", "def456", "ghi"].join("");
   const ctx = await makeTempCtx({
-    ".env": `PUBLIC_KEY=${publicKey}\nVITE_SUPABASE_TOKEN=abc123def456ghi\n`,
+    ".env": `PUBLIC_KEY=${publicKey}\nVITE_SUPABASE_TOKEN=${clientValue}\n`,
   });
   const findings = await checkConfigSecretLeaks(ctx);
   assert.equal(

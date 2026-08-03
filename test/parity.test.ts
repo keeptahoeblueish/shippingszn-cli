@@ -10,7 +10,6 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CLI_SRC = path.resolve(__dirname, "..", "src");
 
 const ITEM_ID_KEY_PATTERN = /\bitemId:\s*"([a-z0-9-]+)"/g;
-
 async function collectMatches(
   dir: string,
   pattern: RegExp,
@@ -58,7 +57,7 @@ test("every itemId emitted by the CLI maps to a real web checklist id", async ()
   assert.deepEqual(
     orphaned,
     [],
-    `CLI emits itemIds missing from the shared checklist metadata. Either rename the CLI itemId to match an existing checklist item, or add the missing item to the shared checklist. Orphans: ${JSON.stringify(orphaned)}`,
+    `CLI emits itemIds missing from @workspace/checklist-data. Either rename the CLI itemId to match an existing checklist item, or add the missing item to the shared checklist. Orphans: ${JSON.stringify(orphaned)}`,
   );
 });
 
@@ -85,12 +84,12 @@ test("CHECKLIST_ITEMS registry in items.ts matches automated checklist coverage"
   assert.deepEqual(
     registryOnly,
     [],
-    `CLI registry includes items the shared checklist does not classify as automated. Registry-only: ${JSON.stringify(registryOnly)}`,
+    `CLI registry includes items that @workspace/checklist-data does not classify as automated. Registry-only: ${JSON.stringify(registryOnly)}`,
   );
   assert.deepEqual(
     checklistOnly,
     [],
-    `The shared checklist classifies items as automated that are missing from the CLI registry. Checklist-only: ${JSON.stringify(checklistOnly)}`,
+    `@workspace/checklist-data classifies items as automated that are missing from the CLI registry. Checklist-only: ${JSON.stringify(checklistOnly)}`,
   );
 });
 
@@ -105,7 +104,9 @@ test("automated checklist items are emitted by CLI checks and manual items are n
   )
     .map((item) => item.id)
     .sort();
-  const manualIds = CHECKLIST.filter((item) => item.cliCoverage === "manual_only")
+  const manualIds = CHECKLIST.filter(
+    (item) => item.cliCoverage === "manual_only",
+  )
     .map((item) => item.id)
     .sort();
 

@@ -265,6 +265,15 @@ function classify(candidate: string): {
   return null;
 }
 
+function safeLifecycleEvidence(
+  verdict: NonNullable<ReturnType<typeof classify>>,
+): string {
+  if (verdict.hit) {
+    return `Matched model-lifecycle category: ${verdict.status}; provider: ${verdict.hit.provider}; lifecycle date: ${verdict.hit.date}. The matched source line is intentionally omitted.`;
+  }
+  return "Matched model-lifecycle category: dated snapshot. The matched source line is intentionally omitted.";
+}
+
 export async function checkModelFreshness(
   ctx: CheckContext,
 ): Promise<Finding[]> {
@@ -302,7 +311,7 @@ export async function checkModelFreshness(
               message: `Model "${candidate}" was retired by ${verdict.hit.provider} on ${verdict.hit.date}. Calls to it now fail — this AI feature is broken.`,
               file: relPosix(file.relPath),
               line: findLine(content, charIndex),
-              evidence: rawLine.trim().slice(0, 200),
+              evidence: safeLifecycleEvidence(verdict),
             }),
           );
         } else if (verdict.status === "scheduled" && verdict.hit) {
@@ -314,7 +323,7 @@ export async function checkModelFreshness(
               message: `Model "${candidate}" is scheduled for shutdown by ${verdict.hit.provider} on ${verdict.hit.date}. It will start erroring on that date unless you migrate.`,
               file: relPosix(file.relPath),
               line: findLine(content, charIndex),
-              evidence: rawLine.trim().slice(0, 200),
+              evidence: safeLifecycleEvidence(verdict),
             }),
           );
         } else if (verdict.status === "dated") {
@@ -326,7 +335,7 @@ export async function checkModelFreshness(
               message: `Model "${candidate}" is a pinned dated snapshot. Dated snapshots get retired on a schedule — drive the model from config/an alias, not a literal.`,
               file: relPosix(file.relPath),
               line: findLine(content, charIndex),
-              evidence: rawLine.trim().slice(0, 200),
+              evidence: safeLifecycleEvidence(verdict),
             }),
           );
         }
