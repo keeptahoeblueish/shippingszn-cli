@@ -26,12 +26,9 @@
     "vibe-coder"
   ],
   "homepage": "https://shippingszn.com",
-  "bugs": {
-    "url": "https://github.com/keeptahoeblueish/shippingszn-cli/issues"
-  },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/keeptahoeblueish/shippingszn-cli.git"
+    "url": "git+https://origin.cursor.com/novus/shippingszn-cli.git"
   },
   "engines": {
     "node": ">=20"

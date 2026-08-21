@@ -415,11 +415,10 @@ if (
 }
 if (
   packageJson.repository?.url !==
-    "git+https://github.com/keeptahoeblueish/shippingszn-cli.git" ||
-  packageJson.bugs?.url !==
-    "https://github.com/keeptahoeblueish/shippingszn-cli/issues"
+    "git+https://origin.cursor.com/novus/shippingszn-cli.git" ||
+  "bugs" in packageJson
 ) {
-  fail("package metadata does not point at the public CLI repository");
+  fail("package metadata does not point exclusively at Cursor Origin");
 }
 
 for (const value of collectStrings(packageJson)) {
@@ -476,15 +475,12 @@ if (
   fail("public checklist metadata contains a paid or private checklist field");
 }
 
-const releaseWorkflow = readFileSync(
-  join(ROOT, ".github/workflows/release-cli.yml"),
-  "utf8",
-);
 if (
-  releaseWorkflow.includes(`NPM${"_"}TOKEN`) ||
-  releaseWorkflow.includes(`NODE${"_AUTH_"}TOKEN`)
+  manifestPaths.some((path) => path.startsWith(".github/")) ||
+  existsSync(join(ROOT, ".github/workflows/ci.yml")) ||
+  existsSync(join(ROOT, ".github/workflows/release-cli.yml"))
 ) {
-  fail("release workflow contains a long-lived npm token reference");
+  fail("public repository contains retired forge automation");
 }
 
 if (mode.artifact) verifyArtifact(packageJson);
