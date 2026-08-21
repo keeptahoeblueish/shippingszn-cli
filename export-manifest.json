@@ -1,17 +1,9 @@
 {
   "schemaVersion": 1,
   "packageVersion": "0.11.0",
-  "sourceCommit": "0a519977612940c64b36961f270ab9fda1329e01",
+  "sourceCommit": "089cab4bb9a03660ee1791958558f4755e044973",
   "sourceTreeState": "clean",
   "files": [
-    {
-      "path": ".github/workflows/ci.yml",
-      "sha256": "2d48891f17e1e7049c09da7aff0a6740f6c3be34cec4c22762e7b42f7bba2091"
-    },
-    {
-      "path": ".github/workflows/release-cli.yml",
-      "sha256": "b4197ea22612ecaee6d75e3c151879ea7373e5d388afa7de3781cfa28e3d82f4"
-    },
     {
       "path": ".gitignore",
       "sha256": "74d2ad42f2cfe74e70c62a2091a5b530a4fb2fa29798e59ea8e6a8cfb7ae9862"
@@ -26,7 +18,7 @@
     },
     {
       "path": "README.md",
-      "sha256": "d67ae4ec84346048fb89210d8218f347e9126566e104e4caa0f242af0db68cb9"
+      "sha256": "d77a136a4231e13169b63631e52b4ccea0f38963fa5f05f747062b3e53711cbb"
     },
     {
       "path": "build.mjs",
@@ -38,7 +30,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "44b38823b7b6177b11e9d29c0f09220cdc71345339a09e6d59017d506bb837e2"
+      "sha256": "32a0be9d0bbd6b814036de5e7d605c0635bd8d8ade1cb3fcdbeab3151b7fa28e"
     },
     {
       "path": "scripts/test.mjs",
@@ -46,7 +38,7 @@
     },
     {
       "path": "scripts/verify-export.mjs",
-      "sha256": "91319b73ff3b02853c3c88aaf20a8526c2e0896d28150dbe6dbd07e04a79a37a"
+      "sha256": "6ee372f3fef3d4fc25c0b1931aa4bffe7339c20f99849f64d87c55ba3ae3f63f"
     },
     {
       "path": "src/checks.ts",

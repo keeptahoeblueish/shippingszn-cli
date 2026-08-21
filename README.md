@@ -230,12 +230,12 @@ Options:
 This makes the CLI suitable for CI:
 
 ```yaml
-# .github/workflows/launch-check.yml
+# Add this step to your CI job.
 - run: npx shippingszn@latest --json > launch-check.json
 ```
 
-For PR scan signal, have GitHub Actions run the scanner and post the JSON
-summary as a comment: score, severity counts, launch band, and unlock URL.
+Your CI system can post the JSON summary to its code-review surface: score,
+severity counts, launch band, and unlock URL.
 
 ## Privacy
 
