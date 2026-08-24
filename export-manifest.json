@@ -13,6 +13,10 @@
       "sha256": "f14b4987904bcb5814e4459a057ed4d20f58a633152288a761214dcd28780b56"
     },
     {
+      "path": "AGENTS.md",
+      "sha256": "d98a567daaa02230a6d7ad0e9eee140fb72fed345f958459f39d3bf8a92cb189"
+    },
+    {
       "path": "LICENSE",
       "sha256": "2255f3f5280b64f8fd765f026f71c2105e991107280cc602b141d249ac50ea2d"
     },
