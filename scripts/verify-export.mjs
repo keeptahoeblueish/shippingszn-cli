@@ -415,10 +415,11 @@ if (
 }
 if (
   packageJson.repository?.url !==
-    "git+https://origin.cursor.com/novus/shippingszn-cli.git" ||
-  "bugs" in packageJson
+    "git+https://github.com/keeptahoeblueish/shippingszn-cli.git" ||
+  packageJson.bugs?.url !==
+    "https://github.com/keeptahoeblueish/shippingszn-cli/issues"
 ) {
-  fail("package metadata does not point exclusively at Cursor Origin");
+  fail("package metadata does not point at the authoritative public repository");
 }
 
 for (const value of collectStrings(packageJson)) {
@@ -476,11 +477,13 @@ if (
 }
 
 if (
-  manifestPaths.some((path) => path.startsWith(".github/")) ||
-  existsSync(join(ROOT, ".github/workflows/ci.yml")) ||
-  existsSync(join(ROOT, ".github/workflows/release-cli.yml"))
+  !manifestPaths.includes(".github/workflows/ci.yml") ||
+  !existsSync(join(ROOT, ".github/workflows/ci.yml"))
 ) {
-  fail("public repository contains retired forge automation");
+  fail("public repository must retain its GitHub verification workflow");
+}
+if (existsSync(join(ROOT, ".github/workflows/release-cli.yml"))) {
+  fail("public repository contains an unapproved package publication workflow");
 }
 
 if (mode.artifact) verifyArtifact(packageJson);
