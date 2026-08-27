@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version:
+          - "20"
+          - "22"
+    steps:
+      - name: Check out source
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - name: Pin npm
+        run: npm install --global npm@11.11.0
+
+      - name: Install exact dependencies
+        run: npm ci
+
+      - name: Verify exported source
+        run: npm run verify:export
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Verify executable version
+        run: |
+          EXPECTED_VERSION="$(node --print "require('./package.json').version")"
+          ACTUAL_VERSION="$(node dist/index.js --version)"
+          test "$ACTUAL_VERSION" = "$EXPECTED_VERSION"
+
+      - name: Verify score-only fixture output
+        run: |
+          node --input-type=module <<'NODE'
+          import { execFileSync } from "node:child_process";
+          const stdout = execFileSync(
+            process.execPath,
+            [
+              "dist/index.js",
+              "test/fixtures/cli-exit/clean",
+              "--json",
+              "--no-color",
+              "--no-telemetry",
+            ],
+            { encoding: "utf8" },
+          );
+          const report = JSON.parse(stdout);
+          if (report.detailsLocked !== true) {
+            throw new Error("fixture output did not keep details locked");
+          }
+          if (Object.hasOwn(report, "findings")) {
+            throw new Error("fixture output exposed finding-level data");
+          }
+          NODE
+
+      - name: Verify release artifact boundary
+        run: node scripts/verify-export.mjs --release

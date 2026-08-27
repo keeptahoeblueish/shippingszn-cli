@@ -5,12 +5,20 @@
   "sourceTreeState": "clean",
   "files": [
     {
+      "path": ".github/workflows/ci.yml",
+      "sha256": "2d48891f17e1e7049c09da7aff0a6740f6c3be34cec4c22762e7b42f7bba2091"
+    },
+    {
       "path": ".gitignore",
       "sha256": "74d2ad42f2cfe74e70c62a2091a5b530a4fb2fa29798e59ea8e6a8cfb7ae9862"
     },
     {
       "path": ".nvmrc",
       "sha256": "f14b4987904bcb5814e4459a057ed4d20f58a633152288a761214dcd28780b56"
+    },
+    {
+      "path": "AGENTS.md",
+      "sha256": "b9d4a8d84a599d68f60c496da68d7259836c5c61cbe34ddeb06df05d0e8dd94a"
     },
     {
       "path": "LICENSE",
@@ -30,7 +38,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "32a0be9d0bbd6b814036de5e7d605c0635bd8d8ade1cb3fcdbeab3151b7fa28e"
+      "sha256": "44b38823b7b6177b11e9d29c0f09220cdc71345339a09e6d59017d506bb837e2"
     },
     {
       "path": "scripts/test.mjs",
@@ -38,7 +46,7 @@
     },
     {
       "path": "scripts/verify-export.mjs",
-      "sha256": "6ee372f3fef3d4fc25c0b1931aa4bffe7339c20f99849f64d87c55ba3ae3f63f"
+      "sha256": "13609675b46604151e547ce200ce05e161989cc43e504800804e52b8073c4eb6"
     },
     {
       "path": "src/checks.ts",
