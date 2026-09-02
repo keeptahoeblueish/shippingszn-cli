@@ -1,0 +1,318 @@
+import type { Finding } from "./checks.js";
+import type { Severity } from "./items.js";
+import type { NormalizedLaunchFinding } from "./vendor/launch-readiness/index.js";
+import { projectFingerprint } from "./project-fingerprint.js";
+
+const PROOF_TIMEOUT_MS = 5000;
+const MAX_FINDINGS = 100;
+const SCAN_CHECKOUT_TOKEN_PATTERN = /^sszct1_[A-Za-z0-9_-]{43}$/;
+
+export type ProofUploadStatus = "uploaded" | "skipped" | "failed";
+
+export type ProofFinding = Finding &
+  NormalizedLaunchFinding &
+  Readonly<{
+    permalink: string;
+    itemTitle: string;
+  }>;
+
+export interface ProofReportInput {
+  generatedAt: string;
+  source?: "cli" | "github";
+  cwd: string;
+  filesScanned: number;
+  totals: Record<Severity, number>;
+  launchReadiness: {
+    score: number;
+    label: string;
+    decision: string;
+    decisionLabel: string;
+    goNoGoLabel: string;
+    confidence: string;
+    topNextStep: string;
+    reportRecommended: boolean;
+    reportUrl?: string;
+  };
+  findings: ProofFinding[];
+}
+
+export interface ProofUploadResult {
+  status: ProofUploadStatus;
+  id?: string;
+  proofUrl?: string;
+  reportUrl?: string;
+  badgeMarkdown?: string;
+  wallUrl?: string;
+  wallPublishError?: string;
+  error?: string;
+}
+
+export interface ProofUploadOptions {
+  baseUrl: string;
+  scannerVersion: string;
+}
+
+function clampText(
+  value: string | undefined,
+  max: number,
+  fallback = "",
+): string {
+  const text = value ?? fallback;
+  return text.length > max ? text.slice(0, max - 3) + "..." : text;
+}
+
+function locationFromFinding(finding: ProofFinding): string | undefined {
+  if (!finding.file) return undefined;
+  return finding.line ? `${finding.file}:${finding.line}` : finding.file;
+}
+
+function safeFindingBody(finding: ProofFinding): string {
+  return clampText(
+    finding.whatFailed || finding.body || finding.message,
+    3000,
+    `The local scanner detected a ${finding.severity} ${finding.itemTitle || "launch-readiness"} finding.`,
+  );
+}
+
+function safeFindingEvidence(finding: ProofFinding): string {
+  return `Detection category: ${finding.checkId}. Matched source text is intentionally omitted.`;
+}
+
+export function buildBadgeMarkdown(baseUrl: string, id: string, score: number) {
+  const params = new URLSearchParams({
+    scanResultId: id,
+    theme: "dark",
+  });
+  const fixKitUrl = `${baseUrl}/fix-kit?${new URLSearchParams({ scanResultId: id }).toString()}`;
+  return `[![shippingszn scan score: ${score}%](${baseUrl}/api/badge.svg?${params.toString()})](${fixKitUrl})`;
+}
+
+export function buildProofPayload(
+  report: ProofReportInput,
+  scannerVersion: string,
+) {
+  const counts = {
+    critical: report.totals.critical,
+    high: report.totals.high,
+    medium: report.totals.medium,
+    lower: report.totals.lower,
+  };
+
+  return {
+    version: 1,
+    source: report.source ?? ("cli" as const),
+    scanner: "shippingszn" as const,
+    targetName: "Anonymous CLI scan",
+    projectFingerprint: projectFingerprint(report.cwd),
+    score: report.launchReadiness.score,
+    label: report.launchReadiness.label,
+    decision: report.launchReadiness.decision,
+    decisionLabel: report.launchReadiness.decisionLabel,
+    goNoGoLabel: report.launchReadiness.goNoGoLabel,
+    confidence: report.launchReadiness.confidence,
+    checkedAt: report.generatedAt,
+    counts,
+    findings: report.findings.slice(0, MAX_FINDINGS).map((finding) => ({
+      itemId: finding.itemId,
+      severity: finding.severity,
+      title: clampText(finding.itemTitle || finding.checkId, 160),
+      body: clampText(safeFindingBody(finding), 3000),
+      evidence: clampText(safeFindingEvidence(finding), 3000),
+      whatFailed: clampText(finding.whatFailed, 3000),
+      whyItBlocksLaunch: clampText(finding.whyItBlocksLaunch, 3000),
+      fixInstructions: clampText(finding.fixInstructions, 5000),
+      aiBuilderPrompt: clampText(finding.aiBuilderPrompt, 5000),
+      verificationStep: clampText(finding.verificationStep, 3000),
+      fixPrompt: clampText(finding.fixPrompt, 5000),
+      verify: clampText(finding.verify, 3000),
+      confidence: finding.confidence,
+      ...(locationFromFinding(finding)
+        ? { location: clampText(locationFromFinding(finding)!, 500) }
+        : {}),
+      permalink: finding.permalink,
+      itemTitle: clampText(finding.itemTitle, 160),
+    })),
+    filesScanned: report.filesScanned,
+    topNextStep: report.launchReadiness.topNextStep,
+    reportRecommended: report.launchReadiness.reportRecommended,
+    ...(report.launchReadiness.reportUrl
+      ? { reportUrl: report.launchReadiness.reportUrl }
+      : {}),
+    scannerVersion,
+  };
+}
+
+function validatedPrivateUnlockUrl(
+  value: unknown,
+  baseUrl: string,
+  scanResultId: string,
+  scanCheckoutToken: unknown,
+): string | null {
+  if (
+    typeof value !== "string" ||
+    typeof scanCheckoutToken !== "string" ||
+    !SCAN_CHECKOUT_TOKEN_PATTERN.test(scanCheckoutToken)
+  ) {
+    return null;
+  }
+
+  try {
+    const base = new URL(baseUrl);
+    const url = new URL(value, base.origin);
+    const queryKeys = [...url.searchParams.keys()];
+    const fragment = new URLSearchParams(url.hash.slice(1));
+    const fragmentKeys = [...fragment.keys()];
+    if (
+      url.origin !== base.origin ||
+      url.username ||
+      url.password ||
+      url.pathname !== "/fix-kit" ||
+      queryKeys.length !== 1 ||
+      queryKeys[0] !== "scanResultId" ||
+      url.searchParams.get("scanResultId") !== scanResultId ||
+      fragmentKeys.length !== 1 ||
+      fragmentKeys[0] !== "scanCheckoutToken" ||
+      fragment.get("scanCheckoutToken") !== scanCheckoutToken
+    ) {
+      return null;
+    }
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+function buildWallPayload(
+  report: ProofReportInput,
+  scanResultId: string,
+  scannerVersion: string,
+) {
+  return {
+    source: "cli" as const,
+    scanResultId,
+    score: report.launchReadiness.score,
+    label: report.launchReadiness.label,
+    filesScanned: report.filesScanned,
+    findingsCritical: report.totals.critical,
+    findingsHigh: report.totals.high,
+    findingsMedium: report.totals.medium,
+    findingsLower: report.totals.lower,
+    scannerVersion,
+  };
+}
+
+async function publishProofToWall(
+  baseUrl: string,
+  report: ProofReportInput,
+  scanResultId: string,
+  scannerVersion: string,
+): Promise<{ wallUrl?: string; error?: string }> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PROOF_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${baseUrl}/api/wall`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "user-agent": `shippingszn-cli/${scannerVersion}`,
+      },
+      body: JSON.stringify(
+        buildWallPayload(report, scanResultId, scannerVersion),
+      ),
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    if (!res.ok) {
+      return { error: `Wall publish failed with HTTP ${res.status}.` };
+    }
+    return { wallUrl: `${baseUrl}/wall` };
+  } catch (err) {
+    clearTimeout(timer);
+    return {
+      error: `Wall publish failed: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+}
+
+export async function uploadProof(
+  report: ProofReportInput,
+  opts: ProofUploadOptions,
+): Promise<ProofUploadResult> {
+  const baseUrl = opts.baseUrl.replace(/\/$/, "");
+  const payload = buildProofPayload(report, opts.scannerVersion);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PROOF_TIMEOUT_MS);
+
+  try {
+    const res = await fetch(`${baseUrl}/api/scan-results`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "user-agent": `shippingszn-cli/${opts.scannerVersion}`,
+      },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+
+    if (!res.ok) {
+      return {
+        status: "failed",
+        error: `Proof upload failed with HTTP ${res.status}.`,
+      };
+    }
+
+    const body = (await res.json()) as {
+      id?: unknown;
+      unlockUrl?: unknown;
+      scanCheckoutToken?: unknown;
+    };
+    const id = typeof body.id === "string" ? body.id : "";
+    if (!id) {
+      return {
+        status: "failed",
+        error: "Proof upload succeeded but the response did not include an id.",
+      };
+    }
+    const privateUnlockUrl = validatedPrivateUnlockUrl(
+      body.unlockUrl,
+      baseUrl,
+      id,
+      body.scanCheckoutToken,
+    );
+    if (!privateUnlockUrl) {
+      return {
+        status: "failed",
+        error:
+          "Proof upload succeeded but the response did not include a valid private Fix Kit link.",
+      };
+    }
+
+    const wall = await publishProofToWall(
+      baseUrl,
+      report,
+      id,
+      opts.scannerVersion,
+    );
+
+    return {
+      status: "uploaded",
+      id,
+      proofUrl: `${baseUrl}/proof/${encodeURIComponent(id)}`,
+      reportUrl: privateUnlockUrl,
+      badgeMarkdown: buildBadgeMarkdown(
+        baseUrl,
+        id,
+        report.launchReadiness.score,
+      ),
+      ...(wall.wallUrl ? { wallUrl: wall.wallUrl } : {}),
+      ...(wall.error ? { wallPublishError: wall.error } : {}),
+    };
+  } catch (err) {
+    clearTimeout(timer);
+    return {
+      status: "failed",
+      error: `Proof upload failed: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+}
