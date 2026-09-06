@@ -1,49 +1,85 @@
 # ShippingSZN CLI business documentation
 
-Public-source consolidation reviewed on 2026-09-06. No private business records, machine-local memory, credentials, or account details are included.
+Source contract reviewed on 2026-09-06. This document describes the generated
+source; it does not establish what a registry or website currently serves.
+No private business records or machine-local agent memory are included.
 
 ## Purpose and scope
 
-This repository distributes the ShippingSZN local launch inspector as the `shippingszn` npm package. It is a supporting product component, not a separate business. This documentation summarizes the public source repository, not a live npm or website check.
+ShippingSZN is a free, read-only launch inspector for developers and founders
+shipping AI-built applications. This repository contains standalone source for
+the `shippingszn` npm package. It is a supporting component, not a separate
+business.
 
 ## Customers and users
 
-Developers and founders preparing to launch AI-built applications, including people running the inspector in a terminal or continuous-integration workflow.
+Developers, founders, and AI-builder users inspecting applications before
+launch in a terminal or continuous-integration workflow.
 
 ## Products, services and business model
 
-The public README presents a local scan that summarizes launch findings and links to a Launch Fix Kit. It describes a paid, project-bound Kit and a separate recurring-monitoring product. These are statements in this checkout's product contract, not independent confirmation of current website offers or pricing. The export manifest records package version 0.11.0; it does not prove what npm currently serves as `latest`.
+The source provides complete findings, evidence, fix instructions, AI-builder
+prompts, and verification steps without a payment requirement. Optional local
+visibility uses the user's own OpenAI or Anthropic credentials; calls may incur
+provider charges and require explicit spend confirmation. This repository does
+not establish commercial agreements, revenue, or current website offers. The
+manifest's version identifies this export, not the registry's `latest` version.
 
 ## Core business workflows
 
-1. Run the local inspector against a project working tree.
-2. Review its score, severity counts, and launch band.
-3. Follow the described report/remediation path and rescan after fixes.
+1. Inspect a local working tree without modifying its files.
+2. Review the score, severity counts, launch band, and complete findings.
+3. Apply remediation and rescan.
+4. Use the sanitized private report for further review. Normal scans also send
+   an aggregate Wall request; `--no-telemetry` disables both requests for an
+   offline launch scan.
 
-Default runs make a sanitized scan handoff and aggregate Wall request. The documented `--no-telemetry` flag disables all network calls. Inspection does not modify target-project files; a small first-run marker in the user's configuration directory records telemetry-notice display.
+For visibility, choose providers, review the preflight, confirm spend, and keep
+JSON and Markdown reports locally. Missing providers mean explicit partial
+coverage; ShippingSZN does not substitute its own provider account.
 
 ## Adopted decisions and constraints
 
-The public privacy contract excludes source-file contents, raw matched lines, absolute project paths, and unredacted secret values from uploads. Handoffs may include relative file/line locations and derived/redacted evidence; aggregate Wall data is narrower. Default mode is not offline. The inspector does not auto-fix, execute a running application, test real auth flows, perform deep static analysis, or inspect provider dashboards. A clean scan is not a launch certificate.
+Free findings do not make private reports public. Launch-scan uploads exclude
+source-file contents, raw matched lines, absolute project paths, and unredacted
+secrets. They may include sanitized relative locations and derived evidence;
+Wall summaries carry aggregate data. Default launch scans are not offline.
+
+Provider keys are accepted through environment variables, never credential
+command-line flags. Visibility responses stay local and are not included in
+launch telemetry. The inspector does not auto-fix a project, verify real
+authentication journeys, or inspect provider dashboards. A clean scan is not
+a launch certificate, security certification, or compliance attestation.
 
 ## Systems of record
 
 | Record | Authoritative home |
 |---|---|
-| Public component context | This document, grounded in public sources |
+| Public component context | This document and the linked source contract |
 | Exported source provenance | [Export manifest](../../export-manifest.json) |
 | Inspected project content | User's own working tree |
-| Scan handoff and Wall records | ShippingSZN service under its documented contract |
-| Published package version | npm registry; not checked for this documentation pass |
+| Local visibility credentials and reports | User's machine |
+| Private handoff and aggregate Wall records | ShippingSZN service under its documented privacy contract |
+| Published package version | npm registry, independently verified for a release |
 
 ## Terminology
 
-**Finding:** issue detected by implemented checks. **Launch band:** summary of the scan's severity profile. **Scan handoff:** sanitized results sent to the web service. **Wall summary:** aggregate report-card information. **Offline mode:** the explicit no-telemetry invocation.
+**Finding:** issue with severity, evidence, and remediation. **Launch band:**
+summary readiness category. **Scan handoff:** sanitized results sent to the
+private-report service. **Wall summary:** aggregate scan information. **BYOK:**
+bring your own provider key. **Offline launch scan:** `--no-telemetry`; this
+does not turn provider-based visibility into an offline service.
 
 ## Source map and conflicts
 
-[SOURCES.md](SOURCES.md) lists only public repository sources. Repository claims about paid access, telemetry, and version describe this checkout; a live website or package may differ and must be checked before making a current commercial claim. A generated export is not an independent product decision authority.
+[SOURCES.md](SOURCES.md) lists only files in this generated repository. Its
+README and implementation describe free full findings and local visibility.
+Older published versions may differ. A source export does not prove npm
+publication, website deployment, or parity across distributed components.
 
 ## Open questions
 
-Current npm distribution, current commercial offers, and end-to-end website/package parity are not verified. This repository's source verifier requires every file to be included in its generated manifest. Business documentation is included through the existing committed export source; this documentation change preserves the existing runtime, package, and verification files.
+Current npm distribution and end-to-end website/package parity need release
+verification. No new publication is claimed here. Every source file, including
+these business documents, is included in the generated hash manifest. Private
+records and agent memories are outside this public repository.

@@ -9,19 +9,8 @@ const SCAN_CHECKOUT_TOKEN_PATTERN = /^sszct1_[A-Za-z0-9_-]{43}$/;
 
 export type ProofUploadStatus = "uploaded" | "skipped" | "failed";
 
-type PublicNormalizedLaunchFinding = Omit<
-  NormalizedLaunchFinding,
-  | "fixInstructions"
-  | "aiBuilderPrompt"
-  | "verificationStep"
-  | "fixPrompt"
-  | "verify"
-  | "whatFailed"
-  | "whyItBlocksLaunch"
->;
-
 export type ProofFinding = Finding &
-  PublicNormalizedLaunchFinding &
+  NormalizedLaunchFinding &
   Readonly<{
     permalink: string;
     itemTitle: string;
@@ -78,7 +67,11 @@ function locationFromFinding(finding: ProofFinding): string | undefined {
 }
 
 function safeFindingBody(finding: ProofFinding): string {
-  return `The local scanner detected a ${finding.severity} ${finding.itemTitle || "launch-readiness"} finding. Open the paid Launch Fix Kit for the diagnostic and remediation prompt.`;
+  return clampText(
+    finding.whatFailed || finding.body || finding.message,
+    3000,
+    `The local scanner detected a ${finding.severity} ${finding.itemTitle || "launch-readiness"} finding.`,
+  );
 }
 
 function safeFindingEvidence(finding: ProofFinding): string {
@@ -125,6 +118,13 @@ export function buildProofPayload(
       title: clampText(finding.itemTitle || finding.checkId, 160),
       body: clampText(safeFindingBody(finding), 3000),
       evidence: clampText(safeFindingEvidence(finding), 3000),
+      whatFailed: clampText(finding.whatFailed, 3000),
+      whyItBlocksLaunch: clampText(finding.whyItBlocksLaunch, 3000),
+      fixInstructions: clampText(finding.fixInstructions, 5000),
+      aiBuilderPrompt: clampText(finding.aiBuilderPrompt, 5000),
+      verificationStep: clampText(finding.verificationStep, 3000),
+      fixPrompt: clampText(finding.fixPrompt, 5000),
+      verify: clampText(finding.verify, 3000),
       confidence: finding.confidence,
       ...(locationFromFinding(finding)
         ? { location: clampText(locationFromFinding(finding)!, 500) }
@@ -133,8 +133,7 @@ export function buildProofPayload(
       itemTitle: clampText(finding.itemTitle, 160),
     })),
     filesScanned: report.filesScanned,
-    topNextStep:
-      "Review the highest-severity finding in the paid Launch Fix Kit.",
+    topNextStep: report.launchReadiness.topNextStep,
     reportRecommended: report.launchReadiness.reportRecommended,
     ...(report.launchReadiness.reportUrl
       ? { reportUrl: report.launchReadiness.reportUrl }

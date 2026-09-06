@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import * as path from "node:path";
 import * as os from "node:os";
-import * as process from "node:process";
+import process from "node:process";
 import { promises as fs } from "node:fs";
 import { createRequire } from "node:module";
 import { ALL_CHECKS, type Finding } from "./checks.js";
@@ -9,6 +9,7 @@ import { listFiles, getTrackedFiles } from "./scan.js";
 import { CHECKLIST_ITEMS, permalinkFor, type Severity } from "./items.js";
 import { publishScan, detectStack } from "./publish.js";
 import { uploadProof, type ProofUploadResult } from "./proof.js";
+import { runVisibilityCommand } from "./visibility/command.js";
 import {
   assessLaunchReadiness,
   normalizeLaunchFinding,
@@ -16,6 +17,7 @@ import {
   type NormalizedLaunchFinding,
   type ScoreBandId,
 } from "./vendor/launch-readiness/index.js";
+import { CHECKLIST_BY_ID } from "./vendor/checklist-data/index.js";
 
 const UNTRACKED_DOWNGRADE: Record<Severity, Severity> = {
   critical: "lower",
@@ -230,8 +232,8 @@ function printTelemetryDisclosure(info: {
   const stackList = stack.length ? stack.join(", ") : "(none detected)";
   process.stderr.write(
     `\nshippingszn sends two telemetry requests per run by default:\n` +
-      `1. A locked scan handoff (creates your /fix-kit link): a stable opaque\n` +
-      `   project fingerprint used to match paid rescans, plus each finding's\n` +
+      `1. A private scan handoff (creates your /fix-kit link): a stable opaque\n` +
+      `   project fingerprint used to match rescans, plus each finding's\n` +
       `   severity, checklist item, file:line location, and short derived or\n` +
       `   redacted evidence category. It never sends matched source lines or\n` +
       `   source-file contents.\n` +
@@ -249,20 +251,8 @@ function printTelemetryDisclosure(info: {
   );
 }
 
-type PublicNormalizedLaunchFinding = Omit<
-  NormalizedLaunchFinding,
-  | "fixInstructions"
-  | "aiBuilderPrompt"
-  | "verificationStep"
-  | "fixPrompt"
-  | "verify"
-  | "whatFailed"
-  | "whyItBlocksLaunch"
-  | "body"
->;
-
-type PublicFinding = Finding &
-  PublicNormalizedLaunchFinding & {
+type FreeFinding = Finding &
+  NormalizedLaunchFinding & {
     permalink: string;
     itemTitle: string;
   };
@@ -276,38 +266,34 @@ launch-readiness items from shippingszn.
 
 Usage:
   npx shippingszn@latest [path] [options]
+  npx shippingszn@latest visibility <url> [--engines openai,anthropic] [--yes]
 
 Options:
   --json                Output a machine-readable score, launch band, severity
-                        counts, and locked Fix Kit handoff status.
+                        counts, complete findings, and private report status.
   --no-telemetry        Run fully offline. No scan handoff, no anonymous Wall
                         ping — zero network calls. (--no-wall is an alias.)
   --proof               Backward-compatible alias. Normal runs already return
-                        a scan-specific Launch Fix Kit URL.
-  --base-url <url>      Base URL used to build checkout and Fix Kit links.
+                        a scan-specific private report URL.
+  --base-url <url>      Base URL used to build report and checklist links.
                         (default: ${DEFAULT_BASE_URL})
   --cwd <path>          Directory to scan. Default: current working directory.
   --no-color            Disable ANSI colors in the human-readable summary.
   -h, --help            Show this help.
   -v, --version         Print version.
 
-The FREE result contains only a 0-100 score, severity counts, and launch band.
-One $49 Launch Fix Kit is bound to one matched project and includes exact
-findings, the full 58-item launch workbook, evidence, AI-builder prompts, and
-unlimited matched re-scans. One global Codex OAuth connection works from any
-Codex project, but unrelated-project access is denied. Checkout does not sign
-you in; OTP sign-in is required. Compatible legacy purchases can be linked once
-from Account when their original repository scan and paid report context are
-available: select the exact owned purchase and permanently confirm its one
-project. If Account says that context is missing or incompatible, open
-${DEFAULT_BASE_URL}/support#codex-mcp for a manual access review. Recurring launch
-monitoring is separate. Read-only on disk. By default each run sends a locked
-scan handoff with a stable opaque project fingerprint used to match paid
-rescans, finding severity, checklist item, file:line, and short
+The result is free and includes the score, launch band, exact findings, evidence,
+fix instructions, AI-builder prompts, verification steps, and links to the full
+launch workbook. Read-only on disk. By default each run sends a sanitized
+scan handoff with a stable opaque project fingerprint used to match rescans,
+finding severity, checklist item, file:line, and short
 derived or redacted evidence, plus an anonymous aggregate Wall ping (score,
 severity counts, file count, scanner version, stack tags). Neither sends your
 repo URL, project name, absolute project path, matched source lines, source-file
 contents, or unredacted secrets. Pass --no-telemetry to disable both.
+The visibility command calls OpenAI and Anthropic locally using keys from
+OPENAI_API_KEY and ANTHROPIC_API_KEY. It shows a spend preflight and requires
+confirmation before making calls. ShippingSZN never receives those keys.
 Exit code non-zero if any critical findings.
 `,
   );
@@ -342,7 +328,7 @@ interface Report {
     proofUploadError?: string;
     wallPublishError?: string;
   };
-  findings: PublicFinding[];
+  findings: FreeFinding[];
 }
 
 function scanSource(): Extract<LaunchReadinessSource, "cli" | "github"> {
@@ -350,7 +336,11 @@ function scanSource(): Extract<LaunchReadinessSource, "cli" | "github"> {
 }
 
 async function run(): Promise<number> {
-  const opts = parseArgs(process.argv.slice(2));
+  const rawArgs = process.argv.slice(2);
+  if (rawArgs[0] === "visibility") {
+    return runVisibilityCommand(rawArgs.slice(1));
+  }
+  const opts = parseArgs(rawArgs);
   if (opts.help) {
     printHelp();
     return 0;
@@ -392,6 +382,8 @@ async function run(): Promise<number> {
   const source = scanSource();
   const enriched = tracked_aware.map((f) => {
     const item = CHECKLIST_ITEMS[f.itemId];
+    const checklistItem = CHECKLIST_BY_ID[f.itemId];
+    const prompt = checklistItem?.cliPrompt;
     const itemTitle = item?.title ?? f.itemId;
     const permalink = permalinkFor(f.itemId, opts.baseUrl);
     const normalized = normalizeLaunchFinding(
@@ -421,6 +413,29 @@ async function run(): Promise<number> {
       ...(normalized.line ? { line: normalized.line } : {}),
       itemTitle,
       permalink,
+      whatFailed: prompt?.whatFailed ?? normalized.body,
+      whyItBlocksLaunch:
+        prompt?.whyItBlocksLaunch ??
+        checklistItem?.why ??
+        "This launch-readiness gap needs review before public traffic.",
+      fixInstructions:
+        prompt?.fixInstructions ??
+        checklistItem?.steps.join(" ") ??
+        "Review the finding, correct the affected launch control, and scan again.",
+      aiBuilderPrompt:
+        prompt?.aiBuilderPrompt ??
+        checklistItem?.prompt ??
+        `Fix the ${itemTitle} launch-readiness finding and verify the result.`,
+      verificationStep:
+        prompt?.verificationStep ??
+        "Run shippingszn again and confirm this finding is gone.",
+      fixPrompt:
+        prompt?.aiBuilderPrompt ??
+        checklistItem?.prompt ??
+        `Fix the ${itemTitle} launch-readiness finding and verify the result.`,
+      verify:
+        prompt?.verificationStep ??
+        "Run shippingszn again and confirm this finding is gone.",
     };
   });
   enriched.sort((a, b) => {
@@ -429,11 +444,6 @@ async function run(): Promise<number> {
     if (sa !== sb) return sa - sb;
     if (a.itemId !== b.itemId) return a.itemId.localeCompare(b.itemId);
     return a.checkId.localeCompare(b.checkId);
-  });
-
-  const publicFindings = enriched.map((f): PublicFinding => {
-    const { body: _body, ...publicFinding } = f;
-    return publicFinding;
   });
 
   const totals: Record<Severity, number> = {
@@ -474,7 +484,7 @@ async function run(): Promise<number> {
     filesScanned: files.length,
     totals,
     launchReadiness,
-    findings: publicFindings,
+    findings: enriched,
   };
 
   // Telemetry is default-ON but transparent and opt-out-able. On the first run
@@ -544,9 +554,8 @@ async function run(): Promise<number> {
     }
   }
 
-  // The free CLI is the launch scoreboard: score, band, and severity counts.
-  // Finding-level diagnosis stays in the locked scan handoff so the paid Fix
-  // Kit can render it after purchase; it is never echoed to stdout.
+  // The free CLI exposes the complete sanitized launch diagnosis. Payment is
+  // not an authorization boundary; private report links remain capabilities.
   // The shared score is severity-banded: critical findings are the no-go band,
   // high findings are fix-first, medium findings are verify-first, and count
   // pressure moves the score inside that band. That keeps the number and
@@ -589,11 +598,11 @@ async function run(): Promise<number> {
       ? `${trimmedBaseUrl}/wall`
       : undefined;
   const wallError = proofResult.wallPublishError;
-  const scanSpecificUnlockUrl =
+  const scanSpecificReportUrl =
     proofResult.status === "uploaded" && proofResult.reportUrl
       ? proofResult.reportUrl
       : undefined;
-  const unlockUrl = scanSpecificUnlockUrl ?? fixKitUrl;
+  const privateReportUrl = scanSpecificReportUrl ?? fixKitUrl;
 
   if (opts.json) {
     const scoreSummary = {
@@ -602,8 +611,8 @@ async function run(): Promise<number> {
       counts: { ...totals },
       filesScanned: files.length,
       scannerVersion: PKG_VERSION,
-      detailsLocked: true,
-      unlockUrl,
+      findings: report.findings,
+      privateReportUrl,
       wall: {
         status: wallStatus,
         ...(wallUrl ? { url: wallUrl } : {}),
@@ -614,7 +623,7 @@ async function run(): Promise<number> {
         ...(proofResult.status === "uploaded"
           ? {
               resultId: proofResult.id,
-              unlockUrl: proofResult.reportUrl,
+              reportUrl: proofResult.reportUrl,
             }
           : {}),
         ...(proofResult.status === "failed" && proofResult.error
@@ -626,8 +635,7 @@ async function run(): Promise<number> {
     return totals.critical > 0 ? 1 : 0;
   }
 
-  // Scoreboard-only human output. Finding titles, file locations, evidence,
-  // and remediation stay inside the paid Fix Kit.
+  // Human output mirrors the substantive JSON diagnosis.
   const bandColor =
     band === "no_go"
       ? c.red
@@ -713,45 +721,32 @@ async function run(): Promise<number> {
   }
 
   if (totalFindings > 0) {
-    process.stdout.write(
-      `${c.bold("Your finding details are locked.")} ${c.dim("The $49 Launch Fix Kit includes:")}\n`,
-    );
-    process.stdout.write(
-      c.dim(
-        "  - Exact finding titles, file locations, and evidence\n" +
-          "  - Per-finding fix instructions and AI-builder prompts\n" +
-          "  - The full 58-item launch workbook\n" +
-          "  - Unlimited matched re-scans for this one project\n" +
-          "  - One global Codex OAuth connection; unrelated projects stay locked\n" +
-          "  - Checkout does not sign you in; OTP sign-in is required\n" +
-          "  - Recurring launch monitoring is separate\n",
-      ),
-    );
-    process.stdout.write(
-      `${c.bold("Unlock this scan:")} ${c.cyan(unlockUrl)}\n`,
-    );
-    if (scanSpecificUnlockUrl) {
+    process.stdout.write(`${c.bold("Findings:")}\n\n`);
+    for (const finding of report.findings) {
+      const location = finding.location ?? finding.file;
       process.stdout.write(
-        c.dim(
-          "  This exact scan carries into the project-bound Kit after checkout. Checkout does not sign you in; complete OTP sign-in to open it.\n\n",
-        ),
+        `${c.bold(`[${finding.severity.toUpperCase()}] ${finding.title}`)}\n`,
       );
-    } else {
-      process.stdout.write("\n");
+      if (location) process.stdout.write(`${c.dim(`Location: ${location}`)}\n`);
+      process.stdout.write(`Evidence: ${finding.evidence}\n`);
+      process.stdout.write(`Why it matters: ${finding.whyItBlocksLaunch}\n`);
+      process.stdout.write(`Fix: ${finding.fixInstructions}\n`);
+      process.stdout.write(`AI-builder prompt: ${finding.aiBuilderPrompt}\n`);
+      process.stdout.write(`Verify: ${finding.verificationStep}\n\n`);
     }
+    process.stdout.write(
+      `${c.bold("Private web report:")} ${c.cyan(privateReportUrl)}\n\n`,
+    );
   } else {
     process.stdout.write(
       c.green("No automated findings detected — nothing to remediate.\n"),
     );
     process.stdout.write(
-      `${c.bold("Get the Fix Kit:")} ${c.cyan(unlockUrl)}\n`,
+      `${c.bold("Open the free launch workbook:")} ${c.cyan(privateReportUrl)}\n`,
     );
     process.stdout.write(
       c.dim(
-        "  The full 58-item launch workbook, owner-verification steps, and unlimited\n" +
-          "  matched re-scans for this one project. One global Codex OAuth connection\n" +
-          "  works from any Codex project, but unrelated projects stay locked. Checkout\n" +
-          "  does not sign you in; OTP is required. Recurring monitoring is separate.\n\n",
+        "  Includes all owner-verification steps and matched re-scans.\n\n",
       ),
     );
   }
@@ -775,11 +770,13 @@ async function run(): Promise<number> {
 }
 
 run().then(
-  (code) => process.exit(code),
+  (code) => {
+    process.exitCode = code;
+  },
   (err) => {
     process.stderr.write(
       `shippingszn failed: ${err instanceof Error ? err.message : String(err)}\n`,
     );
-    process.exit(2);
+    process.exitCode = 2;
   },
 );

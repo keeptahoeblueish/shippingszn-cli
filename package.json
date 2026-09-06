@@ -1,6 +1,6 @@
 {
   "name": "shippingszn",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "description": "Read-only launch inspector for AI-built apps.",
   "license": "MIT",
   "type": "module",
@@ -26,9 +26,12 @@
     "vibe-coder"
   ],
   "homepage": "https://shippingszn.com",
+  "bugs": {
+    "url": "https://github.com/keeptahoeblueish/shippingszn-cli/issues"
+  },
   "repository": {
     "type": "git",
-    "url": "git+https://origin.cursor.com/novus/shippingszn-cli.git"
+    "url": "git+https://github.com/keeptahoeblueish/shippingszn-cli.git"
   },
   "engines": {
     "node": ">=20"
