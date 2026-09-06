@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   accessSync,
@@ -13,6 +13,7 @@ import {
   readdirSync,
   rmSync,
   statSync,
+  writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, relative, resolve, sep } from "node:path";
@@ -84,6 +85,18 @@ const EXPECTED_PACKAGE_FILES = [
   "dist/index.js",
   "package.json",
 ];
+const PUBLIC_CHECKLIST_FILES = new Set([
+  "index.ts",
+  "types.ts",
+  "metadata.ts",
+  "public.ts",
+  "items-critical.ts",
+  "items-critical-a.ts",
+  "items-critical-b.ts",
+  "items-high.ts",
+  "items-medium.ts",
+  "items-lower.ts",
+]);
 const EXPECTED_DEV_DEPENDENCIES = {
   "@types/node": "20.19.28",
   esbuild: "0.28.1",
@@ -277,6 +290,95 @@ function verifyArtifact(packageJson) {
     if (installedVersion !== packageJson.version) {
       fail("installed tarball CLI version does not match package.json");
     }
+
+    // Exercise the installed bundle, with no workspace modules or live services.
+    const cliEnv = {
+      ...artifactEnvironment(),
+      SHIPPINGSZN_CONFIG_HOME: join(temporaryRoot, "config"),
+      SHIPPINGSZN_BASE_URL: "http://127.0.0.1:9",
+      OPENAI_API_KEY: "",
+      ANTHROPIC_API_KEY: "",
+    };
+    const criticalRoot = join(temporaryRoot, "critical");
+    mkdirSync(criticalRoot);
+    const syntheticKey = ["s", "k", "-", "fixture", "_", "E".repeat(32)].join(
+      "",
+    );
+    writeFileSync(
+      join(criticalRoot, "leak.ts"),
+      `export const OPENAI_KEY = "${syntheticKey}";\n`,
+    );
+    for (const [target, expectedStatus] of [
+      [join(ROOT, "test/fixtures/cli-exit/clean"), 0],
+      [join(ROOT, "test/fixtures/cli-exit/non-critical"), 0],
+      [criticalRoot, 1],
+    ]) {
+      const scan = spawnSync(
+        installedBin,
+        [target, "--json", "--no-color", "--no-telemetry"],
+        {
+          cwd: installRoot,
+          encoding: "utf8",
+          env: cliEnv,
+          timeout: 30_000,
+        },
+      );
+      if (scan.status !== expectedStatus)
+        fail("installed tarball scan returned an unexpected exit code");
+      const report = JSON.parse(scan.stdout);
+      if (!Array.isArray(report.findings) || report.detailsLocked === true) {
+        fail("installed tarball must expose free findings");
+      }
+      if (
+        report.scanHandoff?.status !== "skipped" ||
+        report.wall?.status !== "skipped"
+      ) {
+        fail("installed tarball offline scan did not disable uploads");
+      }
+      if (scan.stdout.includes(syntheticKey))
+        fail("installed tarball exposed a raw credential");
+      if (expectedStatus === 1) {
+        const finding = report.findings.find(
+          (item) => item.severity === "critical",
+        );
+        if (
+          !finding ||
+          [
+            "whatFailed",
+            "whyItBlocksLaunch",
+            "fixInstructions",
+            "aiBuilderPrompt",
+            "verificationStep",
+          ].some(
+            (field) =>
+              typeof finding[field] !== "string" || !finding[field].trim(),
+          )
+        ) {
+          fail(
+            "installed tarball is missing complete remediation for a critical finding",
+          );
+        }
+      }
+    }
+    const visibility = spawnSync(
+      installedBin,
+      ["visibility", "https://example.invalid"],
+      {
+        cwd: installRoot,
+        encoding: "utf8",
+        env: cliEnv,
+        stdio: ["ignore", "pipe", "pipe"],
+        timeout: 30_000,
+      },
+    );
+    if (
+      visibility.status !== 2 ||
+      !visibility.stderr.includes("No provider calls made")
+    ) {
+      fail(
+        "installed tarball visibility command must require spend confirmation",
+      );
+    }
   } finally {
     rmSync(temporaryRoot, { recursive: true, force: true });
   }
@@ -415,10 +517,13 @@ if (
 }
 if (
   packageJson.repository?.url !==
-    "git+https://origin.cursor.com/novus/shippingszn-cli.git" ||
-  "bugs" in packageJson
+    "git+https://github.com/keeptahoeblueish/shippingszn-cli.git" ||
+  packageJson.bugs?.url !==
+    "https://github.com/keeptahoeblueish/shippingszn-cli/issues"
 ) {
-  fail("package metadata does not point exclusively at Cursor Origin");
+  fail(
+    "package metadata does not point at the authoritative public repository",
+  );
 }
 
 for (const value of collectStrings(packageJson)) {
@@ -456,11 +561,14 @@ for (const path of manifestPaths) {
 
 for (const path of manifestPaths) {
   if (
-    /^src\/vendor\/checklist-data\/(?:items-[^/]+|metadata|index)\.ts$/.test(
-      path,
-    )
+    (path.startsWith("src/vendor/checklist-data/") &&
+      !PUBLIC_CHECKLIST_FILES.has(
+        path.slice("src/vendor/checklist-data/".length),
+      )) ||
+    (path.startsWith("src/vendor/launch-readiness/") &&
+      path !== "src/vendor/launch-readiness/index.ts")
   ) {
-    fail(`forbidden rich checklist source found in export: ${path}`);
+    fail(`private or unapproved vendor source found in export: ${path}`);
   }
 }
 const publicChecklist = readFileSync(
@@ -472,15 +580,19 @@ if (
     publicChecklist,
   )
 ) {
-  fail("public checklist metadata contains a paid or private checklist field");
+  fail(
+    "public checklist metadata contains remediation fields reserved for checklist modules",
+  );
 }
 
 if (
-  manifestPaths.some((path) => path.startsWith(".github/")) ||
-  existsSync(join(ROOT, ".github/workflows/ci.yml")) ||
-  existsSync(join(ROOT, ".github/workflows/release-cli.yml"))
+  !manifestPaths.includes(".github/workflows/ci.yml") ||
+  !existsSync(join(ROOT, ".github/workflows/ci.yml"))
 ) {
-  fail("public repository contains retired forge automation");
+  fail("public repository must retain its GitHub verification workflow");
+}
+if (existsSync(join(ROOT, ".github/workflows/release-cli.yml"))) {
+  fail("public repository contains an unapproved package publication workflow");
 }
 
 if (mode.artifact) verifyArtifact(packageJson);

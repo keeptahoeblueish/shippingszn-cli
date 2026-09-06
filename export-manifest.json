@@ -1,9 +1,13 @@
 {
   "schemaVersion": 1,
-  "packageVersion": "0.11.0",
-  "sourceCommit": "e83210b7446c1ee16ea75e69635d901ca00b4fe6",
+  "packageVersion": "0.12.0",
+  "sourceCommit": "144e9c0ac2716d8102035944eff274339d408f2b",
   "sourceTreeState": "clean",
   "files": [
+    {
+      "path": ".github/workflows/ci.yml",
+      "sha256": "b03d73cd960aeca2da47806144173cd5392b31b656e23a7364f401fb44364ba6"
+    },
     {
       "path": ".gitignore",
       "sha256": "74d2ad42f2cfe74e70c62a2091a5b530a4fb2fa29798e59ea8e6a8cfb7ae9862"
@@ -14,7 +18,7 @@
     },
     {
       "path": "AGENTS.md",
-      "sha256": "d98a567daaa02230a6d7ad0e9eee140fb72fed345f958459f39d3bf8a92cb189"
+      "sha256": "b9d4a8d84a599d68f60c496da68d7259836c5c61cbe34ddeb06df05d0e8dd94a"
     },
     {
       "path": "LICENSE",
@@ -22,7 +26,7 @@
     },
     {
       "path": "README.md",
-      "sha256": "c5b5dac2521d0d748f16e4306560a57b1d69af57558f39dcb1c782ad99637dcc"
+      "sha256": "f707e21c023980f1eca7392b44ab1a62b3d3e8438eb1ff3150eb469c182967b0"
     },
     {
       "path": "build.mjs",
@@ -30,19 +34,19 @@
     },
     {
       "path": "docs/business/README.md",
-      "sha256": "d13ef63f86d8bd4adac44a8f2e3ba35f970e2f201173296f45c1c301563a2cdd"
+      "sha256": "b67934b4bb28a859be013f571dde1a8030c1cb051565b5ca4fff5b68f01014ed"
     },
     {
       "path": "docs/business/SOURCES.md",
-      "sha256": "d69f8753523be6003bbbf59284162d86275ddf5d0c73a87d819b0c3deb171039"
+      "sha256": "93cd58b79e34cc366ce7b77bab361c606d6251e84a0fde4d7267d1f0297df72f"
     },
     {
       "path": "package-lock.json",
-      "sha256": "b3e9795574845a8b75e21e55396ae9bbc36a6aca62c513c9d01f54e977039fce"
+      "sha256": "53c05205b9d1cd51bcc2fabe6dbac3a8b86defd284e1c206e42252687dc5a63a"
     },
     {
       "path": "package.json",
-      "sha256": "32a0be9d0bbd6b814036de5e7d605c0635bd8d8ade1cb3fcdbeab3151b7fa28e"
+      "sha256": "481c5a71cfb43a23e43ba2c0432ed7c4309ff70dfe72700dd9b6a3d19f482830"
     },
     {
       "path": "scripts/test.mjs",
@@ -50,7 +54,7 @@
     },
     {
       "path": "scripts/verify-export.mjs",
-      "sha256": "6ee372f3fef3d4fc25c0b1931aa4bffe7339c20f99849f64d87c55ba3ae3f63f"
+      "sha256": "be7a8ccf74d0bf241c7a991e890ec1f1f73e384b25136a6dae37c41d50baf3a6"
     },
     {
       "path": "src/checks.ts",
@@ -146,7 +150,7 @@
     },
     {
       "path": "src/index.ts",
-      "sha256": "506e25b7b1a4c9dd1733876b69cca9e140adce50b870df528482f31876ffcecd"
+      "sha256": "e15e2517f983d7730e793b63e8007adc0ee493faede337cd4502b8054311e0fb"
     },
     {
       "path": "src/items.ts",
@@ -158,7 +162,7 @@
     },
     {
       "path": "src/proof.ts",
-      "sha256": "5233452d53ab6840b41ed9bc42ea6fe52723b1ff4a42def2a999fd5f525696a3"
+      "sha256": "92c24fcc7facb4275663ec7d2a0006e1f8531b181b2d1b0ea1e8abf87b70e1b3"
     },
     {
       "path": "src/publish.ts",
@@ -169,16 +173,84 @@
       "sha256": "f8d1aeb327691dc88a56981699b72e5335a4fa7cc8431a6f7f60faac9ba1d7d3"
     },
     {
+      "path": "src/vendor/checklist-data/index.ts",
+      "sha256": "285080660254b04c60f2fa25653230be2d32db46924a677a421d1a300ebe7d8e"
+    },
+    {
+      "path": "src/vendor/checklist-data/items-critical-a.ts",
+      "sha256": "1d34300d01e6b4d1c07872fd25f0efdfd6da36319e603484afd90240ff4eb5ea"
+    },
+    {
+      "path": "src/vendor/checklist-data/items-critical-b.ts",
+      "sha256": "3c2337c8d157575a05a6b9700b4e934e8bb16d1053b3f6cb81d17090d5f37ae8"
+    },
+    {
+      "path": "src/vendor/checklist-data/items-critical.ts",
+      "sha256": "43fdb9b47aaacf28cc6760eeeef6c6270fa1d7096dedf9b99b939a998168d62e"
+    },
+    {
+      "path": "src/vendor/checklist-data/items-high.ts",
+      "sha256": "24fe26adc0ceb9e1c9f5ce066dd0b55a7a6430dfb5b946a0317070752c997b19"
+    },
+    {
+      "path": "src/vendor/checklist-data/items-lower.ts",
+      "sha256": "7168f344133c3443cdb99fbfdcf54fca4255c5dfe0e34cbad5a89c7bf535ac94"
+    },
+    {
+      "path": "src/vendor/checklist-data/items-medium.ts",
+      "sha256": "0035a404675b839b82ca2de1f0b36808ba982a43428bc79fe75cc4ab6ef4d5c3"
+    },
+    {
+      "path": "src/vendor/checklist-data/metadata.ts",
+      "sha256": "4c70bd870c71d32be902a0a888173525202aa898a6abab02a8d4d5c02da3a5af"
+    },
+    {
       "path": "src/vendor/checklist-data/public.ts",
       "sha256": "41d4bbe1ce558c9be2492d11e7a516f7a3d7afe01a319d79755bbe512bed6c6d"
     },
     {
       "path": "src/vendor/checklist-data/types.ts",
-      "sha256": "76ea5cf9192b7edb3c2026a060b8f1a65bf83ad24ccf7c5dd7d6d34714255961"
+      "sha256": "9b27e60b2e2f828f190bbc903fd6c608905d71ec674595089e44b40f492a967e"
     },
     {
       "path": "src/vendor/launch-readiness/index.ts",
       "sha256": "e019827ef7149f46e0301c00d0f276138ede002a43edc78c29c94116bb079aa2"
+    },
+    {
+      "path": "src/visibility/command.ts",
+      "sha256": "d7dfed8352278a191dd9cdd41c3f20a52d588cfa917c6bd26fa7f318b4b1c84e"
+    },
+    {
+      "path": "src/visibility/config.ts",
+      "sha256": "53b168d0d1e46fbb26a37a0dc33e606cd8aa80de89b7e638e7896b917936ddfb"
+    },
+    {
+      "path": "src/visibility/providers/anthropic.ts",
+      "sha256": "c2000f64b5c06626a74260c5bb0bfcccfa5d87becf24dab3891f27508754985e"
+    },
+    {
+      "path": "src/visibility/providers/openai.ts",
+      "sha256": "6085376205f7b452dce06431a7e8ced11e957233d655e310d4792fe42a37e751"
+    },
+    {
+      "path": "src/visibility/providers/shared.ts",
+      "sha256": "4b40ee518b37d289f571d41c35f6a058ae525642b7a58c9fd9054713ea227436"
+    },
+    {
+      "path": "src/visibility/redaction.ts",
+      "sha256": "7b2bcef7af3cdf77c6eddc618014443f8f1a1ec4c775622437e00d687e361b05"
+    },
+    {
+      "path": "src/visibility/report.ts",
+      "sha256": "f7705cfac6f39603a25b45b7d8196b1976f617eb8f032df30f5aca5fdf6e03a4"
+    },
+    {
+      "path": "src/visibility/run.ts",
+      "sha256": "6e1e89a9d24b21d3eb9e055a569b2f9ef43a0f5b88c25f32607771aa0d84fed7"
+    },
+    {
+      "path": "src/visibility/types.ts",
+      "sha256": "536e9dcb178663df9f196de81dbbaa45593150b7304502794a2f0fe1c1d970ea"
     },
     {
       "path": "test/checks.test.ts",
@@ -186,7 +258,7 @@
     },
     {
       "path": "test/cli.test.ts",
-      "sha256": "de2c56235ec8ec1578a1149041edc150a20b64cb1b653e09ef94a2a33cd2bae3"
+      "sha256": "4e2e91df51bf66461103d3ab93c9d9a9456b6c9eb81e6291b45632600778ba39"
     },
     {
       "path": "test/fixtures/cli-exit/clean/.gitignore",
@@ -399,6 +471,10 @@
     {
       "path": "test/scan.test.ts",
       "sha256": "ba5fc1fcf9dbf56501a4fada42a4c9f35f419186d3bc08879edb845976b18418"
+    },
+    {
+      "path": "test/visibility.test.ts",
+      "sha256": "c1b75ecbe107b688fc02bd82545e64b59f694f01ffed9e6e72b7365438e674d9"
     },
     {
       "path": "tsconfig.json",
