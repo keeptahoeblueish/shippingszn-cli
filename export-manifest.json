@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "packageVersion": "0.11.0",
-  "sourceCommit": "089cab4bb9a03660ee1791958558f4755e044973",
+  "sourceCommit": "4d501cc164c41ba0aa88d34fc815b434864315e8",
   "sourceTreeState": "clean",
   "files": [
     {
@@ -26,11 +26,19 @@
     },
     {
       "path": "README.md",
-      "sha256": "d77a136a4231e13169b63631e52b4ccea0f38963fa5f05f747062b3e53711cbb"
+      "sha256": "c5b5dac2521d0d748f16e4306560a57b1d69af57558f39dcb1c782ad99637dcc"
     },
     {
       "path": "build.mjs",
       "sha256": "c8f11ef958da95c0d1be00d8372725780ef3eaae56f2cc68ba2b29ba08ff9355"
+    },
+    {
+      "path": "docs/business/README.md",
+      "sha256": "d13ef63f86d8bd4adac44a8f2e3ba35f970e2f201173296f45c1c301563a2cdd"
+    },
+    {
+      "path": "docs/business/SOURCES.md",
+      "sha256": "01cd59abfe0e2c7ef9f3607e179c8ec662c4c3564dbb19a51a71d20c23eb19f3"
     },
     {
       "path": "package-lock.json",

@@ -255,3 +255,7 @@ and that run's exact aggregate Wall values to stderr. `--no-telemetry` (alias
 ## License
 
 MIT. See [LICENSE](./LICENSE).
+
+## Business knowledge
+
+[Business documentation](docs/business/README.md) explains this component, its public source contract, and known limits independently of agent configuration.

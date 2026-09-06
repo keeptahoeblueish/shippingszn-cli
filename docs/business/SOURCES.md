@@ -16,4 +16,4 @@ Reviewed on 2026-09-06. This public document uses only files already present in 
 - Reviewed the public root README, package metadata, export manifest, source verifier, and relevant CLI code.
 - No private parent records, machine-local memory, customer data, credentials, or account data are included.
 - Live npm distribution, website offers, and customer journeys were not checked; repository observations must not be presented as current release or commercial verification.
-- This is a documentation candidate. The strict generated-source manifest currently does not include these business files.
+- Business files are included by the existing committed source exporter and its hash manifest. Existing non-README artifact bytes are preserved; no npm publication is part of this documentation change.

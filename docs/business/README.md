@@ -46,4 +46,4 @@ The public privacy contract excludes source-file contents, raw matched lines, ab
 
 ## Open questions
 
-Current npm distribution, current commercial offers, and end-to-end website/package parity are not verified. This repository's source verifier requires every file to be included in its generated manifest. The documentation candidate therefore needs supported export integration before publication; no existing provenance is rewritten to imply that integration occurred.
+Current npm distribution, current commercial offers, and end-to-end website/package parity are not verified. This repository's source verifier requires every file to be included in its generated manifest. Business documentation is included through the existing committed export source; this documentation change preserves the existing runtime, package, and verification files.
