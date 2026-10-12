@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "packageVersion": "0.12.0",
-  "sourceCommit": "144e9c0ac2716d8102035944eff274339d408f2b",
+  "sourceCommit": "6e6204d3a21b9132d3c387fa346ee72328b0e427",
   "sourceTreeState": "clean",
   "files": [
     {
@@ -18,7 +18,7 @@
     },
     {
       "path": "AGENTS.md",
-      "sha256": "b9d4a8d84a599d68f60c496da68d7259836c5c61cbe34ddeb06df05d0e8dd94a"
+      "sha256": "04aa26c0b47b5c94ecd656fe133eebf71dc50a9cd02458a6b2fef389ec741871"
     },
     {
       "path": "LICENSE",
