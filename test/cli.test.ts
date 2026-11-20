@@ -113,7 +113,7 @@ function runRawCli(args: string[]) {
   });
 }
 
-interface ScoreOnlyReport {
+interface FreeReport {
   score: number;
   band: "no_go" | "fix_first" | "verify_before_launch" | "launchable";
   counts: {
@@ -124,8 +124,15 @@ interface ScoreOnlyReport {
   };
   filesScanned: number;
   scannerVersion: string;
-  detailsLocked: true;
-  unlockUrl: string;
+  privateReportUrl: string;
+  findings: Array<{
+    title: string;
+    file?: string;
+    evidence?: string;
+    fixInstructions: string;
+    aiBuilderPrompt: string;
+    verificationStep: string;
+  }>;
   wall: {
     status: "published" | "skipped" | "failed" | "disabled";
     url?: string;
@@ -134,12 +141,12 @@ interface ScoreOnlyReport {
   scanHandoff: {
     status: "uploaded" | "skipped" | "failed";
     resultId?: string;
-    unlockUrl?: string;
+    reportUrl?: string;
     error?: string;
   };
 }
 
-function parseReport(res: ReturnType<typeof runCli>): ScoreOnlyReport {
+function parseReport(res: ReturnType<typeof runCli>): FreeReport {
   return JSON.parse(res.stdout);
 }
 
@@ -165,16 +172,14 @@ test("CLI rejects malformed options instead of scanning an unintended target", (
   }
 });
 
-test("CLI help qualifies legacy Fix Kit binding and gives a support fallback", () => {
+test("CLI help describes complete free output and private reports", () => {
   const res = runRawCli(["--help"]);
   assert.equal(res.status, 0, res.stderr);
-  assert.match(res.stdout, /compatible legacy purchases can be linked once/i);
-  assert.match(res.stdout, /original repository scan and paid report context/i);
-  assert.match(res.stdout, /exact owned purchase/i);
-  assert.match(res.stdout, /permanently confirm its one\s+project/i);
-  assert.match(res.stdout, /missing or incompatible/i);
-  assert.match(res.stdout, /support#codex-mcp/i);
-  assert.match(res.stdout, /manual access review/i);
+  assert.match(res.stdout, /result is free/i);
+  assert.match(res.stdout, /exact findings/i);
+  assert.match(res.stdout, /AI-builder prompts/i);
+  assert.match(res.stdout, /private report/i);
+  assert.doesNotMatch(res.stdout, /\$49/);
 });
 
 test("CLI rejects a nonexistent scan target instead of reporting a partial score", () => {
@@ -193,7 +198,7 @@ test("CLI canonicalizes trailing slashes in generated product links", () => {
   ]);
   assert.equal(res.status, 0, res.stderr);
   const report = parseReport(res);
-  assert.equal(report.unlockUrl, "https://example.test/fix-kit");
+  assert.equal(report.privateReportUrl, "https://example.test/fix-kit");
 });
 
 async function startProofServer() {
@@ -306,19 +311,18 @@ test("CLI exits non-zero when a critical finding is present", () => {
     `expected at least one critical finding, got counts=${JSON.stringify(report.counts)}`,
   );
   assert.equal(report.band, "no_go");
-  assert.equal(report.unlockUrl, "http://127.0.0.1:9/fix-kit");
+  assert.equal(report.privateReportUrl, "http://127.0.0.1:9/fix-kit");
   assert.equal(report.scanHandoff.status, "failed");
   assert.equal(typeof report.score, "number");
   assert.ok(report.score >= 0 && report.score <= 100);
   assert.equal("coverage" in report, false);
   assert.equal(typeof report.scannerVersion, "string");
   assert.equal(typeof report.filesScanned, "number");
-  assert.equal(report.detailsLocked, true);
-  assert.equal(
-    (report as unknown as { findings?: unknown }).findings,
-    undefined,
-    "free JSON must not expose finding-level details",
-  );
+  assert.ok(report.findings.length > 0);
+  assert.equal(typeof report.findings[0]?.title, "string");
+  assert.equal(typeof report.findings[0]?.fixInstructions, "string");
+  assert.equal(typeof report.findings[0]?.aiBuilderPrompt, "string");
+  assert.equal(typeof report.findings[0]?.verificationStep, "string");
   assert.ok(
     (report as unknown as { launchReadiness?: unknown }).launchReadiness ===
       undefined,
@@ -332,8 +336,8 @@ test("CLI exits 0 when no critical findings are present", () => {
   assert.equal(report.counts.critical, 0);
   assert.equal(report.counts.high, 0);
   assert.equal(report.band, "launchable");
-  assert.equal(report.detailsLocked, true);
-  assert.equal(report.unlockUrl, "http://127.0.0.1:9/fix-kit");
+  assert.equal(report.findings.length, 0);
+  assert.equal(report.privateReportUrl, "http://127.0.0.1:9/fix-kit");
   assert.equal(report.scanHandoff.status, "failed");
   assert.ok(
     report.score >= 90,
@@ -352,12 +356,8 @@ test("CLI exits 0 when only non-critical findings are present", () => {
     nonCritical > 0,
     `expected at least one non-critical finding, got counts ${JSON.stringify(report.counts)}`,
   );
-  assert.equal(report.detailsLocked, true);
-  assert.equal(
-    (report as unknown as { findings?: unknown }).findings,
-    undefined,
-  );
-  assert.equal(report.unlockUrl, "http://127.0.0.1:9/fix-kit");
+  assert.ok(report.findings.length > 0);
+  assert.equal(report.privateReportUrl, "http://127.0.0.1:9/fix-kit");
   assert.equal(report.scanHandoff.status, "failed");
   assert.equal(report.band, "fix_first");
   assert.ok(
@@ -366,7 +366,7 @@ test("CLI exits 0 when only non-critical findings are present", () => {
   );
 });
 
-test("human CLI output keeps finding details locked and shows the Fix Kit CTA", async () => {
+test("human CLI output shows complete free findings and the private report", async () => {
   const server = await startProofServer();
   try {
     const res = runHumanCli("non-critical", ["--base-url", server.baseUrl]);
@@ -376,47 +376,32 @@ test("human CLI output keeps finding details locked and shows the Fix Kit CTA", 
     assert.match(res.stdout, /Higher is better\./);
     assert.doesNotMatch(res.stdout, /FIX NOW/);
     assert.match(res.stdout, /Findings detected:/);
-    assert.doesNotMatch(res.stdout, /\nFindings:/);
-    assert.doesNotMatch(
-      res.stdout,
-      /Connect to GitHub for backups and history/,
-    );
-    assert.doesNotMatch(res.stdout, /No \.gitignore at the project root/);
-    assert.match(res.stdout, /Your finding details are locked\./);
-    assert.match(
-      res.stdout,
-      /Exact finding titles, file locations, and evidence/,
-    );
-    assert.match(
-      res.stdout,
-      /Per-finding fix instructions and AI-builder prompts/,
-    );
-    assert.match(res.stdout, /full 58-item launch workbook/);
-    assert.match(res.stdout, /Unlimited matched re-scans for this one project/);
-    assert.match(res.stdout, /One global Codex OAuth connection/);
-    assert.match(
-      res.stdout,
-      /Checkout does not sign you in; OTP sign-in is required/,
-    );
-    assert.match(res.stdout, /Recurring launch monitoring is separate/);
-    assert.doesNotMatch(res.stdout, /Unlimited re-scans \+ launch monitoring/);
-    assert.match(res.stdout, /Unlock this scan:/);
+    assert.match(res.stdout, /\nFindings:/);
+    assert.match(res.stdout, /Connect to GitHub for backups and history/);
+    assert.match(res.stdout, /Evidence:/);
+    assert.match(res.stdout, /Why it matters:/);
+    assert.match(res.stdout, /Fix:/);
+    assert.match(res.stdout, /AI-builder prompt:/);
+    assert.match(res.stdout, /Verify:/);
+    assert.doesNotMatch(res.stdout, /finding details are locked/i);
+    assert.doesNotMatch(res.stdout, /\$49/);
+    assert.match(res.stdout, /Private web report:/);
     assert.match(res.stdout, /\/fix-kit\?scanResultId=/);
   } finally {
     server.close();
   }
 });
 
-test("critical human output does not print file-level findings", () => {
+test("critical human output prints sanitized file-level findings", () => {
   const res = runHumanCli("critical", ["--no-telemetry"]);
   assert.equal(res.status, 1, `stderr: ${res.stderr}\nstdout: ${res.stdout}`);
   assert.match(res.stdout, /Verdict:\s+FIX NOW/);
-  assert.doesNotMatch(res.stdout, /\nFindings:/);
-  assert.doesNotMatch(res.stdout, /leak\.ts:1/);
-  assert.match(res.stdout, /Your finding details are locked\./);
+  assert.match(res.stdout, /\nFindings:/);
+  assert.match(res.stdout, /leak\.ts:1/);
+  assert.doesNotMatch(res.stdout, /finding details are locked/i);
 });
 
-test("CLI creates a scan-specific Fix Kit handoff by default", async () => {
+test("CLI creates a scan-specific private report handoff by default", async () => {
   const server = await startProofServer();
   try {
     const res = runCli("clean", ["--base-url", server.baseUrl]);
@@ -428,7 +413,7 @@ test("CLI creates a scan-specific Fix Kit handoff by default", async () => {
       "00000000-0000-4000-8000-000000000123",
     );
     assert.equal(
-      report.unlockUrl,
+      report.privateReportUrl,
       `${server.baseUrl}/fix-kit?scanResultId=00000000-0000-4000-8000-000000000123#scanCheckoutToken=${SCAN_CHECKOUT_TOKEN}`,
     );
     const state = (await server.json("/_count")) as { count: number };
@@ -493,14 +478,10 @@ test("--no-telemetry makes zero network calls", async () => {
     ]);
     assert.equal(res.status, 0, `stderr: ${res.stderr}\nstdout: ${res.stdout}`);
     const report = parseReport(res);
-    assert.equal(report.detailsLocked, true);
-    assert.equal(
-      (report as unknown as { findings?: unknown }).findings,
-      undefined,
-    );
+    assert.ok(report.findings.length > 0);
     assert.equal(report.scanHandoff.status, "skipped");
     assert.equal(report.wall.status, "skipped");
-    assert.equal(report.unlockUrl, `${server.baseUrl}/fix-kit`);
+    assert.equal(report.privateReportUrl, `${server.baseUrl}/fix-kit`);
 
     const proofCount = (await server.json("/_count")) as { count: number };
     assert.equal(proofCount.count, 0, "scan handoff must not be uploaded");
@@ -541,7 +522,7 @@ test("first-run telemetry disclosure prints once per machine", () => {
   assert.match(first.stderr, /two telemetry requests/);
   assert.match(first.stderr, /scan handoff/);
   assert.match(first.stderr, /stable opaque\s+project fingerprint/);
-  assert.match(first.stderr, /match paid rescans/);
+  assert.match(first.stderr, /match rescans/);
   assert.match(first.stderr, /never sends matched source lines/);
   assert.match(first.stderr, /source-file contents/);
   assert.match(first.stderr, /repo URL/);
@@ -565,7 +546,7 @@ test("first-run telemetry disclosure prints once per machine", () => {
   assert.doesNotMatch(second.stderr, /two telemetry requests/);
 });
 
-test("CLI scan handoff posts canonical payload and returns Fix Kit URLs", async () => {
+test("CLI scan handoff posts canonical payload and returns private report URLs", async () => {
   const server = await startProofServer();
   try {
     const res = runCli("non-critical", [
@@ -581,11 +562,11 @@ test("CLI scan handoff posts canonical payload and returns Fix Kit URLs", async 
       "00000000-0000-4000-8000-000000000123",
     );
     assert.equal(
-      report.unlockUrl,
+      report.privateReportUrl,
       `${server.baseUrl}/fix-kit?scanResultId=00000000-0000-4000-8000-000000000123#scanCheckoutToken=${SCAN_CHECKOUT_TOKEN}`,
     );
     assert.equal(
-      report.scanHandoff.unlockUrl,
+      report.scanHandoff.reportUrl,
       `${server.baseUrl}/fix-kit?scanResultId=00000000-0000-4000-8000-000000000123#scanCheckoutToken=${SCAN_CHECKOUT_TOKEN}`,
     );
     assert.equal(report.wall.url, `${server.baseUrl}/wall`);
@@ -646,15 +627,13 @@ test("CLI scan handoff posts canonical payload and returns Fix Kit URLs", async 
     assert.equal(typeof payload.findings[0]!.severity, "string");
     assert.equal(typeof payload.findings[0]!.title, "string");
     assert.equal(typeof payload.findings[0]!.body, "string");
-    // Open-core boundary: the CLI uploads diagnosis only. None of the paid
-    // Fix Kit remediation fields may leave the machine.
-    assert.equal(payload.findings[0]!.whatFailed, undefined);
-    assert.equal(payload.findings[0]!.whyItBlocksLaunch, undefined);
-    assert.equal(payload.findings[0]!.fixInstructions, undefined);
-    assert.equal(payload.findings[0]!.fixPrompt, undefined);
-    assert.equal(payload.findings[0]!.verify, undefined);
-    assert.equal(payload.findings[0]!.aiBuilderPrompt, undefined);
-    assert.equal(payload.findings[0]!.verificationStep, undefined);
+    assert.equal(typeof payload.findings[0]!.whatFailed, "string");
+    assert.equal(typeof payload.findings[0]!.whyItBlocksLaunch, "string");
+    assert.equal(typeof payload.findings[0]!.fixInstructions, "string");
+    assert.equal(typeof payload.findings[0]!.fixPrompt, "string");
+    assert.equal(typeof payload.findings[0]!.verify, "string");
+    assert.equal(typeof payload.findings[0]!.aiBuilderPrompt, "string");
+    assert.equal(typeof payload.findings[0]!.verificationStep, "string");
 
     const wallCount = (await server.json("/_wall_count")) as { count: number };
     assert.equal(wallCount.count, 1);
@@ -725,7 +704,7 @@ test("CLI scan handoff omits matched source lines and local project identity", a
     const modelFinding = payload.findings.find(
       (finding) => finding.itemId === "model-freshness",
     );
-    assert.ok(modelFinding, "expected model-freshness in the locked handoff");
+    assert.ok(modelFinding, "expected model-freshness in the private handoff");
     assert.equal(modelFinding.location, "src/ai.ts:1");
     assert.match(
       modelFinding.evidence ?? "",
@@ -753,7 +732,7 @@ test("CLI scan handoff failure returns failed status and non-zero exit", async (
     assert.ok(report.counts.critical > 0);
     assert.equal(report.scanHandoff.status, "failed");
     assert.match(report.scanHandoff.error ?? "", /HTTP 404/);
-    assert.equal(report.scanHandoff.unlockUrl, undefined);
+    assert.equal(report.scanHandoff.reportUrl, undefined);
   } finally {
     server.close();
   }
