@@ -53,29 +53,5 @@ jobs:
           ACTUAL_VERSION="$(node dist/index.js --version)"
           test "$ACTUAL_VERSION" = "$EXPECTED_VERSION"
 
-      - name: Verify score-only fixture output
-        run: |
-          node --input-type=module <<'NODE'
-          import { execFileSync } from "node:child_process";
-          const stdout = execFileSync(
-            process.execPath,
-            [
-              "dist/index.js",
-              "test/fixtures/cli-exit/clean",
-              "--json",
-              "--no-color",
-              "--no-telemetry",
-            ],
-            { encoding: "utf8" },
-          );
-          const report = JSON.parse(stdout);
-          if (report.detailsLocked !== true) {
-            throw new Error("fixture output did not keep details locked");
-          }
-          if (Object.hasOwn(report, "findings")) {
-            throw new Error("fixture output exposed finding-level data");
-          }
-          NODE
-
-      - name: Verify release artifact boundary
+      - name: Verify installed package, free findings, and BYOK spend boundary
         run: node scripts/verify-export.mjs --release
